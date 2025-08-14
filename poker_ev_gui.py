@@ -1,20 +1,17 @@
 import tkinter as tk
 from tkinter import ttk, filedialog
 import random
-import itertools
-import math
 import os
 import re
-# --- NOUVEAUX IMPORTS ---
 from deuces import Card as DeucesCard, Evaluator
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-# --- IMPORTATIONS DIRECTES DEPUIS LES AUTRES FICHIERS ---
-from recapitulatif_tournoi import traiter_resume as traiter_resume_tournoi
-from Performance_cash_game import process_hand as process_cash_game_hand
 
+from recapitulatif_tournoi import analyser_resultats_tournois
+from recapitulatif_expresso import analyser_resultats_expresso
+from recapitulatif_cash_game import analyser_resultats_cash_game
 
-# --- Poker Logic Classes and Functions (inchangé) ---
+# --- Poker Logic Classes and Functions  ---
 
 RANKS = '23456789TJQKA'
 SUITS = 'cdhs'
@@ -70,7 +67,7 @@ class Hand:
 
     def __hash__(self):
         return hash(frozenset(self.cards))
-    
+
 class Player:
     # ... (code complet de la classe Player) ...
     def __init__(self, name, stack):
@@ -438,9 +435,7 @@ def calculate_ev_from_gui(gui_elements):
         ev_result_label.config(text=f"Error: {e}", foreground="red")
 
 
-# --- GUI Functions ---
-
-def parse_hand_string(hand_string):
+# --- GUI Functions ---def parse_hand_string(hand_string):
     """Parses a two-character hand string (e.g., 'AhKd') into a Hand object."""
     if len(hand_string) != 4:
         raise ValueError("Hole cards string must be exactly 4 characters (e.g., 'AhKd').")
@@ -466,164 +461,146 @@ def parse_community_cards_string(community_cards_string):
         raise ValueError("Duplicate cards found in community cards.")
     return cards
 
-def run_tournament_analysis_gui(gui_elements):
+def run_analysis(analysis_function, widgets, graph_config):
     """
-    Lance l'analyse des tournois et met à jour l'interface graphique.
+    Fonction générique pour lancer une analyse, traiter les résultats et mettre à jour l'UI.
     """
-    repertoire = filedialog.askdirectory(title="Sélectionnez le dossier d'historique des tournois")
+    repertoire = filedialog.askdirectory(title=f"Sélectionnez le dossier d'historique pour {graph_config['title']}")
     if not repertoire:
         return
 
-    tree = gui_elements['results_tree']
-    canvas_frame = gui_elements['canvas_frame']
-    summary_label = gui_elements['summary_label']
+    tree = widgets['tree']
+    canvas_frame = widgets['canvas_frame']
+    summary_label = widgets['summary_label']
+    root = summary_label.winfo_toplevel() # Obtenir la fenêtre racine
 
     # Nettoyer les anciens résultats
     for item in tree.get_children():
         tree.delete(item)
     for widget in canvas_frame.winfo_children():
         widget.destroy()
-
-    total_buy_ins = 0.0
-    total_gains = 0.0
-    fichiers_traites = 0
-    gains_cumules = []
-    resultat_net_courant = 0.0
-
-    fichiers_summary = [f for f in os.listdir(repertoire) if f.endswith("summary.txt") and "Expresso" not in f]
-
-    for nom_fichier in sorted(fichiers_summary):
-        chemin_complet = os.path.join(repertoire, nom_fichier)
-        try:
-            with open(chemin_complet, 'r', encoding='utf-8') as f:
-                contenu = f.read()
-            
-            buy_in, gains = traiter_resume_tournoi(contenu)
-            
-            if buy_in > 0:
-                fichiers_traites += 1
-                resultat_net = gains - buy_in
-                
-                # Insérer dans le tableau
-                tree.insert("", "end", values=(nom_fichier, f"{buy_in:.2f}€", f"{gains:.2f}€", f"{resultat_net:+.2f}€"))
-                
-                total_buy_ins += buy_in
-                total_gains += gains
-                resultat_net_courant += resultat_net
-                gains_cumules.append(resultat_net_courant)
-
-        except Exception as e:
-            print(f"Erreur lors du traitement du fichier {nom_fichier}: {e}")
-
-    # Mettre à jour le résumé
-    resultat_net_total = total_gains - total_buy_ins
-    summary_text = (f"Tournois analysés : {fichiers_traites} | "
-                    f"Total Buy-ins : {total_buy_ins:.2f}€ | "
-                    f"Total Gains : {total_gains:.2f}€ | "
-                    f"Résultat Net Global : {resultat_net_total:+.2f}€")
-    summary_label.config(text=summary_text)
-
-    # Créer le graphique
-    if gains_cumules:
-        fig, ax = plt.subplots(figsize=(8, 4), dpi=100)
-        ax.plot(gains_cumules, marker='o', linestyle='-', markersize=4)
-        ax.axhline(0, color='grey', linewidth=0.8, linestyle='--')
-        ax.set_title("Gains Cumulés des Tournois")
-        ax.set_xlabel("Tournoi N°")
-        ax.set_ylabel("Résultat Net Cumulé (€)")
-        ax.grid(True, which='both', linestyle='--', linewidth=0.5)
-        fig.tight_layout()
-
-        canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
-        canvas.draw()
-        canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-
-
-def run_cash_game_analysis_gui(gui_elements):
-    """
-    Lance l'analyse des mains de cash game et met à jour l'interface graphique.
-    """
-    folder_path = filedialog.askdirectory(title="Sélectionnez le dossier d'historique Winamax")
-    if not folder_path:
-        return
-
-    # TODO: Rendre le nom d'utilisateur configurable dans l'UI
-    user_name = "PogShellCie" 
-    
-    canvas_frame = gui_elements['cg_canvas_frame']
-    summary_label = gui_elements['cg_summary_label']
-
-    # Nettoyer les anciens résultats
-    for widget in canvas_frame.winfo_children():
-        widget.destroy()
     summary_label.config(text="Analyse en cours...")
-    root.update_idletasks() # Forcer la mise à jour de l'UI
+    root.update_idletasks()
 
-    net_result = 0.0
-    hand_results = []
-    total_hands = 0
-    excluded_keywords = ["Freeroll", "Expresso", "Kill The Fish", "summary"]
-    
     try:
-        all_items = os.listdir(folder_path)
-        hand_history_files = [
-            os.path.join(folder_path, item) 
-            for item in all_items 
-            if item.endswith('.txt') and not any(keyword in item for keyword in excluded_keywords)
-        ]
+        # Appelle la fonction de traitement appropriée (tournoi, expresso, etc.)
+        if analysis_function == analyser_resultats_cash_game:
+            # TODO: Rendre le nom d'utilisateur configurable dans l'UI
+            user_name = "PogShellCie" 
+            results = analysis_function(repertoire, user_name)
+        else:
+            results = analysis_function(repertoire)
 
-        if not hand_history_files:
-            summary_label.config(text="Aucun fichier de cash game valide trouvé.")
-            return
+        # Mise à jour du tableau (si des détails sont retournés)
+        if "details" in results:
+            for item in results["details"]:
+                tree.insert("", "end", values=(item.get("fichier", "N/A"), f'{item.get("buy_in", 0):.2f}€', f'{item.get("gains", 0):.2f}€', f'{item.get("net", 0):+.2f}€'))
 
-        for file_path in hand_history_files:
-            with open(file_path, 'r', encoding='utf-8') as file:
-                file_content = file.read()
-
-            # Chaque main commence par "Winamax Poker -"
-            hand_list = file_content.split('Winamax Poker -')
-            
-            for hand_text in hand_list:
-                if not hand_text.strip() or "HandId" not in hand_text:
-                    continue
-                
-                # On rajoute le séparateur pour que la fonction de traitement fonctionne correctement
-                full_hand_text = 'Winamax Poker -' + hand_text
-                hand_net = process_cash_game_hand(full_hand_text, user_name)
-                net_result += hand_net
-                hand_results.append(net_result)
-                total_hands += 1
+        # --- CORRECTION ---
+        # On construit la chaîne de résumé ici, à partir des données reçues.
+        # L'ancien code `summary_label.config(text=results["summary_text"])` est supprimé.
         
-        # Mettre à jour le résumé
-        summary_text = f"Fichiers analysés: {len(hand_history_files)} | Mains jouées: {total_hands} | Résultat Net Global: {net_result:+.2f}€"
-        summary_label.config(text=summary_text)
+        summary_text = ""
+        if analysis_function == analyser_resultats_cash_game:
+            # Format spécifique pour le cash game
+            total_hands = results.get("total_hands", 0)
+            net_result = results.get("resultat_net_total", 0.0)
+            summary_text = f"Mains jouées: {total_hands} | Résultat Net Global: {net_result:+.2f}€"
+        else:
+            # Format pour les tournois et expressos
+            count = results.get("nombre_tournois") or results.get("nombre_expressos", 0)
+            total_buy_ins = results.get("total_buy_ins", 0.0)
+            total_gains = results.get("total_gains", 0.0)
+            net_result = results.get("resultat_net_total", 0.0)
+            item_name = "Tournois" if analysis_function == analyser_resultats_tournois else "Expressos"
+            summary_text = (f"{item_name} analysés: {count} | "
+                            f"Total Buy-ins: {total_buy_ins:.2f}€ | "
+                            f"Total Gains: {total_gains:.2f}€ | "
+                            f"Résultat Net Global: {net_result:+.2f}€")
 
-        # Créer le graphique
-        if hand_results:
+        summary_label.config(text=summary_text)
+        # --- FIN DE LA CORRECTION ---
+
+        # Création du graphique
+        if "cumulative_results" in results and results["cumulative_results"]:
             fig, ax = plt.subplots(figsize=(8, 4), dpi=100)
-            ax.plot(hand_results)
+            ax.plot(results["cumulative_results"], marker='o', linestyle='-', markersize=3, color=graph_config.get('color', 'blue'))
             ax.axhline(0, color='grey', linewidth=0.8, linestyle='--')
-            ax.set_title(f"Performance en Cash Game pour {user_name}")
-            ax.set_xlabel("Nombre de mains")
+            ax.set_title(graph_config['title'])
+            ax.set_xlabel(graph_config['xlabel'])
             ax.set_ylabel("Résultat Net Cumulé (€)")
-            ax.grid(True)
+            ax.grid(True, which='both', linestyle='--', linewidth=0.5)
             fig.tight_layout()
 
             canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
             canvas.draw()
             canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         else:
-            summary_label.config(text="Aucune main valide trouvée dans les fichiers.")
+             for widget in canvas_frame.winfo_children():
+                widget.destroy()
 
+
+    except FileNotFoundError as e:
+        summary_label.config(text=str(e))
     except Exception as e:
-        summary_label.config(text=f"Erreur lors de l'analyse: {e}")
+        summary_label.config(text=f"Une erreur est survenue: {e}")
 
+def create_analysis_tab(notebook, tab_name, analysis_function, graph_config):
+    """
+    Crée un onglet d'analyse complet et générique.
+    """
+    tab = ttk.Frame(notebook, padding="10")
+    notebook.add(tab, text=tab_name)
+    tab.columnconfigure(0, weight=1)
+    tab.rowconfigure(1, weight=2)  # Poids pour le tableau
+    tab.rowconfigure(2, weight=3)  # Poids pour le graphique
+
+    # --- Widgets ---
+    controls_frame = ttk.Frame(tab)
+    analyze_button = ttk.Button(controls_frame, text=f"Lancer l'analyse {tab_name}")
+    
+    results_frame = ttk.LabelFrame(tab, text=f"Résultats détaillés ({tab_name})")
+    columns = ('filename', 'buyin', 'winnings', 'net')
+    tree = ttk.Treeview(results_frame, columns=columns, show='headings')
+    scrollbar = ttk.Scrollbar(results_frame, orient=tk.VERTICAL, command=tree.yview)
+    
+    canvas_frame = ttk.LabelFrame(tab, text="Graphique des gains cumulés")
+    summary_label = ttk.Label(tab, text="Prêt à analyser.", anchor="w", font=('TkDefaultFont', 9, 'bold'))
+
+    # --- Configuration du tableau ---
+    tree.heading('filename', text='Fichier / Session')
+    tree.heading('buyin', text='Buy-in')
+    tree.heading('winnings', text='Gains')
+    tree.heading('net', text='Net')
+    tree.column('filename', width=300)
+    tree.column('buyin', width=80, anchor='e')
+    tree.column('winnings', width=80, anchor='e')
+    tree.column('net', width=80, anchor='e')
+    tree.configure(yscroll=scrollbar.set)
+
+    # --- Placement des widgets ---
+    controls_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+    analyze_button.pack()
+    results_frame.grid(row=1, column=0, sticky="nsew", pady=5)
+    results_frame.columnconfigure(0, weight=1)
+    results_frame.rowconfigure(0, weight=1)
+    tree.grid(row=0, column=0, sticky="nsew")
+    scrollbar.grid(row=0, column=1, sticky="ns")
+    canvas_frame.grid(row=2, column=0, sticky="nsew", pady=5)
+    summary_label.grid(row=3, column=0, sticky="ew", pady=(10, 0))
+
+    # --- Lier la commande ---
+    widgets = {'tree': tree, 'canvas_frame': canvas_frame, 'summary_label': summary_label}
+    analyze_button.config(command=lambda: run_analysis(analysis_function, widgets, graph_config))
+
+    return tab
 
 def create_gui():
     """Creates the main GUI window for the poker EV calculator with improved layout."""
+    global root # Rendre root accessible globalement pour la fonction d'analyse
     root = tk.Tk()
     root.title("Poker Tools")
-    root.geometry("850x750") # Taille par défaut
+    root.geometry("900x800") # Taille par défaut
 
     # --- Création du Notebook (onglets) ---
     notebook = ttk.Notebook(root)
@@ -781,95 +758,29 @@ def create_gui():
         'optimize_button': optimize_button
     }
 
-    # --- Onglet 2: Analyse de Tournois ---
-    tournament_tab = ttk.Frame(notebook, padding="10")
-    notebook.add(tournament_tab, text="Analyse Tournois")
-    tournament_tab.columnconfigure(0, weight=1)
-    tournament_tab.rowconfigure(1, weight=1) # Permet au tableau de s'étendre
-    tournament_tab.rowconfigure(2, weight=2) # Permet au graphique de s'étendre
-
-    # Frame pour les contrôles
-    controls_frame = ttk.Frame(tournament_tab)
-    controls_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
-    analyze_button = ttk.Button(controls_frame, text="Lancer l'analyse des tournois")
-    analyze_button.pack()
-
-    # Frame pour les résultats (tableau)
-    results_frame = ttk.LabelFrame(tournament_tab, text="Résultats par tournoi")
-    results_frame.grid(row=1, column=0, sticky="nsew", pady=5)
-    results_frame.columnconfigure(0, weight=1)
-    results_frame.rowconfigure(0, weight=1)
-
-    # Tableau (Treeview)
-    columns = ('filename', 'buyin', 'winnings', 'net')
-    results_tree = ttk.Treeview(results_frame, columns=columns, show='headings')
-    results_tree.heading('filename', text='Fichier')
-    results_tree.heading('buyin', text='Buy-in')
-    results_tree.heading('winnings', text='Gains')
-    results_tree.heading('net', text='Net')
-    results_tree.column('filename', width=300)
-    results_tree.column('buyin', width=80, anchor='e')
-    results_tree.column('winnings', width=80, anchor='e')
-    results_tree.column('net', width=80, anchor='e')
+    # --- Onglets d'Analyse (maintenant génériques) ---
+    create_analysis_tab(
+        notebook,
+        tab_name="Tournois",
+        analysis_function=analyser_resultats_tournois,
+        graph_config={'title': 'Performance en Tournois', 'xlabel': 'Tournoi N°', 'color': 'blue'}
+    )
     
-    # Scrollbar pour le tableau
-    scrollbar = ttk.Scrollbar(results_frame, orient=tk.VERTICAL, command=results_tree.yview)
-    results_tree.configure(yscroll=scrollbar.set)
-    results_tree.grid(row=0, column=0, sticky="nsew")
-    scrollbar.grid(row=0, column=1, sticky="ns")
+    create_analysis_tab(
+        notebook,
+        tab_name="Expresso",
+        analysis_function=analyser_resultats_expresso,
+        graph_config={'title': 'Performance en Expresso', 'xlabel': 'Expresso N°', 'color': 'red'}
+    )
 
-    # Frame pour le graphique
-    canvas_frame = ttk.LabelFrame(tournament_tab, text="Graphique des gains cumulés")
-    canvas_frame.grid(row=2, column=0, sticky="nsew", pady=5)
-    canvas_frame.columnconfigure(0, weight=1)
-    canvas_frame.rowconfigure(0, weight=1)
+    create_analysis_tab(
+        notebook,
+        tab_name="Cash Game",
+        analysis_function=analyser_resultats_cash_game,
+        graph_config={'title': 'Performance en Cash Game', 'xlabel': 'Main N°', 'color': 'green'}
+    )
 
-    # Label pour le résumé global
-    summary_label = ttk.Label(tournament_tab, text="Prêt à analyser.", anchor="w", font=('TkDefaultFont', 9, 'bold'))
-    summary_label.grid(row=3, column=0, sticky="ew", pady=(10, 0))
-
-    # Ajouter les nouveaux éléments au dictionnaire
-    gui_elements['results_tree'] = results_tree
-    gui_elements['canvas_frame'] = canvas_frame
-    gui_elements['summary_label'] = summary_label
-    gui_elements['analyze_button'] = analyze_button
-
-    # Lier la fonction au bouton d'analyse
-    analyze_button.config(command=lambda: run_tournament_analysis_gui(gui_elements))
-
-
-    # --- Onglet 3: Analyse de Cash Game ---
-    cash_game_tab = ttk.Frame(notebook, padding="10")
-    notebook.add(cash_game_tab, text="Analyse Cash Game")
-    cash_game_tab.columnconfigure(0, weight=1)
-    cash_game_tab.rowconfigure(1, weight=1) # Permet au graphique de s'étendre
-
-    # Frame pour les contrôles
-    cg_controls_frame = ttk.Frame(cash_game_tab)
-    cg_controls_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
-    cg_analyze_button = ttk.Button(cg_controls_frame, text="Lancer l'analyse Cash Game")
-    cg_analyze_button.pack()
-
-    # Frame pour le graphique
-    cg_canvas_frame = ttk.LabelFrame(cash_game_tab, text="Graphique des gains cumulés (Cash Game)")
-    cg_canvas_frame.grid(row=1, column=0, sticky="nsew", pady=5)
-    cg_canvas_frame.columnconfigure(0, weight=1)
-    cg_canvas_frame.rowconfigure(0, weight=1)
-
-    # Label pour le résumé global
-    cg_summary_label = ttk.Label(cash_game_tab, text="Prêt à analyser.", anchor="w", font=('TkDefaultFont', 9, 'bold'))
-    cg_summary_label.grid(row=2, column=0, sticky="ew", pady=(10, 0))
-
-    # Ajouter les nouveaux éléments au dictionnaire
-    gui_elements['cg_canvas_frame'] = cg_canvas_frame
-    gui_elements['cg_summary_label'] = cg_summary_label
-    gui_elements['cg_analyze_button'] = cg_analyze_button
-
-    # Lier la fonction au bouton d'analyse
-    cg_analyze_button.config(command=lambda: run_cash_game_analysis_gui(gui_elements))
-
-
-    return root, gui_elements
+    return root
 
 def calculate_ev_from_gui(gui_elements):
     """
@@ -907,7 +818,8 @@ def calculate_ev_from_gui(gui_elements):
 
 # --- GUI Creation and Mainloop ---
 if __name__ == "__main__":
-    root, gui_elements = create_gui()
+    main_window = create_gui()
+    main_window.mainloop()
     
     calculate_button = gui_elements.get('calculate_button')
     if calculate_button:
