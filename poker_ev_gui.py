@@ -319,6 +319,9 @@ def create_gui():
     root.title("Poker Tools")
     root.geometry("900x800") # Taille par défaut
 
+    # This ensures the script exits when the window is closed.
+    root.protocol("WM_DELETE_WINDOW", root.destroy)
+
     # --- Création du Notebook (onglets) ---
     notebook = ttk.Notebook(root)
     notebook.pack(pady=10, padx=10, fill="both", expand=True)
