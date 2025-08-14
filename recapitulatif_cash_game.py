@@ -25,7 +25,7 @@ def process_hand(hand_text, user_name):
         if line.startswith(f"Dealt to {user_name}"):
             match_hand = re.search(r'\[(.+?)\]', line)
             if match_hand:
-                # Nettoie la main (ex: "As Kd" -> "AsKd")
+                # Nettoie la main (ex: "7s 2h" -> "7s2h")
                 hero_hand = match_hand.group(1).replace(" ", "")
         # --- FIN DE LA NOUVELLE LOGIQUE ---
 

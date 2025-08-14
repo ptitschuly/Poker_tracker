@@ -16,7 +16,6 @@ from recapitulatif_cash_game import analyser_resultats_cash_game
 RANKS = '23456789TJQKA'
 SUITS = 'cdhs'
 
-
 class Card:
     def __init__(self, rank, suit):
         # Reference the module-level constants
@@ -435,7 +434,9 @@ def calculate_ev_from_gui(gui_elements):
         ev_result_label.config(text=f"Error: {e}", foreground="red")
 
 
-# --- GUI Functions ---def parse_hand_string(hand_string):
+# --- GUI Functions ---
+
+def parse_hand_string(hand_string):
     """Parses a two-character hand string (e.g., 'AhKd') into a Hand object."""
     if len(hand_string) != 4:
         raise ValueError("Hole cards string must be exactly 4 characters (e.g., 'AhKd').")
@@ -486,7 +487,12 @@ def run_analysis(analysis_function, widgets, graph_config):
         # Appelle la fonction de traitement appropriée (tournoi, expresso, etc.)
         if analysis_function == analyser_resultats_cash_game:
             # TODO: Rendre le nom d'utilisateur configurable dans l'UI
-            user_name = "PogShellCie" 
+            user_name = None
+            if widgets['user_name_entry']:
+                user_name = widgets['user_name_entry'].get()
+                if not user_name:
+                    raise ValueError("Veuillez entrer un nom d'utilisateur pour l'analyse cash game.")
+                    return
             results = analysis_function(repertoire, user_name)
         else:
             results = analysis_function(repertoire)
@@ -559,6 +565,19 @@ def create_analysis_tab(notebook, tab_name, analysis_function, graph_config):
     controls_frame = ttk.Frame(tab)
     analyze_button = ttk.Button(controls_frame, text=f"Lancer l'analyse {tab_name}")
     
+    # --- AJOUT D'UN CHAMP POUR LE PSEUDO ---
+    user_name_label = None
+    user_name_entry = None
+    if analysis_function == analyser_resultats_cash_game:
+        user_name_label = ttk.Label(controls_frame, text="Votre Pseudo:")
+        user_name_label.pack(side=tk.LEFT, padx=(0, 5))
+        user_name_entry = ttk.Entry(controls_frame)
+        user_name_entry.insert(0, "PogShellCie") # Default value
+        user_name_entry.pack(side=tk.LEFT, padx=5)
+    
+    analyze_button.pack(side=tk.LEFT, padx=5)
+    # ...
+
     results_frame = ttk.LabelFrame(tab, text=f"Résultats détaillés ({tab_name})")
     columns = ('filename', 'buyin', 'winnings', 'net')
     tree = ttk.Treeview(results_frame, columns=columns, show='headings')
@@ -590,7 +609,7 @@ def create_analysis_tab(notebook, tab_name, analysis_function, graph_config):
     summary_label.grid(row=3, column=0, sticky="ew", pady=(10, 0))
 
     # --- Lier la commande ---
-    widgets = {'tree': tree, 'canvas_frame': canvas_frame, 'summary_label': summary_label}
+    widgets = {'tree': tree, 'canvas_frame': canvas_frame, 'summary_label': summary_label, 'user_name_entry': user_name_entry}
     analyze_button.config(command=lambda: run_analysis(analysis_function, widgets, graph_config))
 
     return tab
@@ -754,9 +773,11 @@ def create_gui():
         'action_combobox': action_combobox,
         'bet_size_entry': bet_size_entry,
         'ev_result_label': ev_result_label,
-        'calculate_button': calculate_button,
-        'optimize_button': optimize_button
     }
+
+    # --- Lier les commandes des boutons ---
+    calculate_button.config(command=lambda: calculate_ev_from_gui(gui_elements))
+    optimize_button.config(command=lambda: find_optimal_bet_from_gui(gui_elements))
 
     # --- Onglets d'Analyse (maintenant génériques) ---
     create_analysis_tab(
@@ -820,13 +841,3 @@ def calculate_ev_from_gui(gui_elements):
 if __name__ == "__main__":
     main_window = create_gui()
     main_window.mainloop()
-    
-    calculate_button = gui_elements.get('calculate_button')
-    if calculate_button:
-        calculate_button.config(command=lambda: calculate_ev_from_gui(gui_elements))
-
-    optimize_button = gui_elements.get('optimize_button')
-    if optimize_button:
-        optimize_button.config(command=lambda: find_optimal_bet_from_gui(gui_elements))
-
-    root.mainloop()
