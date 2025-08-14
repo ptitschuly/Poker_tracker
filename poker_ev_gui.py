@@ -603,7 +603,7 @@ def create_gui():
     # Store entry widgets for later access (e.g., in the calculation function)
     gui_elements = {
         'stacks_entry': stacks_entry,
-        'position_combobox': position_combobox, # Add the new widget here
+        'position_combobox': position_combobox,
         'sb_entry': sb_entry,
         'bb_entry': bb_entry,
         'ante_entry': ante_entry,
@@ -614,7 +614,7 @@ def create_gui():
         'bet_size_entry': bet_size_entry,
         'ev_result_label': ev_result_label,
         'calculate_button': calculate_button,
-        'optimize_button': optimize_button # Add the new button
+        'optimize_button': optimize_button
     }
     return root, gui_elements
 
