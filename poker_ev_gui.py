@@ -9,9 +9,9 @@ import re
 from deuces import Card as DeucesCard, Evaluator
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-# --- IMPORTATION DIRECTE DEPUIS L'AUTRE FICHIER ---
-import recapitulatif_tournoi
+# --- IMPORTATIONS DIRECTES DEPUIS LES AUTRES FICHIERS ---
 from recapitulatif_tournoi import traiter_resume as traiter_resume_tournoi
+from Performance_cash_game import process_hand as process_cash_game_hand
 
 
 # --- Poker Logic Classes and Functions (inchangé) ---
@@ -29,6 +29,10 @@ class Card:
             raise ValueError(f"Invalid suit: {suit}")
         self.rank = rank.upper()
         self.suit = suit.lower()
+
+    def get_rank_value(self):
+        # Reference the module-level constant
+        return RANKS.index(self.rank)
 
     def __str__(self):
         return f"{self.rank}{self.suit}"
@@ -67,10 +71,6 @@ class Hand:
     def __hash__(self):
         return hash(frozenset(self.cards))
     
-    def get_rank_value(self):
-        # Reference the module-level constant
-        return RANKS.index(self.rank) + 2
-
 class Player:
     # ... (code complet de la classe Player) ...
     def __init__(self, name, stack):
@@ -112,6 +112,7 @@ def create_deck():
     """Creates a standard 52-card deck."""
     return {Card(rank, suit) for rank in RANKS for suit in SUITS}
 
+# Initialize the evaluator once to avoid repeated instantiation
 evaluator = Evaluator() # Créez une instance de l'évaluateur une seule fois
 
 def calculate_equity_fast(hero_hand, opponent_range, community_cards, num_simulations=10000):
@@ -538,6 +539,86 @@ def run_tournament_analysis_gui(gui_elements):
         canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
 
+def run_cash_game_analysis_gui(gui_elements):
+    """
+    Lance l'analyse des mains de cash game et met à jour l'interface graphique.
+    """
+    folder_path = filedialog.askdirectory(title="Sélectionnez le dossier d'historique Winamax")
+    if not folder_path:
+        return
+
+    # TODO: Rendre le nom d'utilisateur configurable dans l'UI
+    user_name = "PogShellCie" 
+    
+    canvas_frame = gui_elements['cg_canvas_frame']
+    summary_label = gui_elements['cg_summary_label']
+
+    # Nettoyer les anciens résultats
+    for widget in canvas_frame.winfo_children():
+        widget.destroy()
+    summary_label.config(text="Analyse en cours...")
+    root.update_idletasks() # Forcer la mise à jour de l'UI
+
+    net_result = 0.0
+    hand_results = []
+    total_hands = 0
+    excluded_keywords = ["Freeroll", "Expresso", "Kill The Fish", "summary"]
+    
+    try:
+        all_items = os.listdir(folder_path)
+        hand_history_files = [
+            os.path.join(folder_path, item) 
+            for item in all_items 
+            if item.endswith('.txt') and not any(keyword in item for keyword in excluded_keywords)
+        ]
+
+        if not hand_history_files:
+            summary_label.config(text="Aucun fichier de cash game valide trouvé.")
+            return
+
+        for file_path in hand_history_files:
+            with open(file_path, 'r', encoding='utf-8') as file:
+                file_content = file.read()
+
+            # Chaque main commence par "Winamax Poker -"
+            hand_list = file_content.split('Winamax Poker -')
+            
+            for hand_text in hand_list:
+                if not hand_text.strip() or "HandId" not in hand_text:
+                    continue
+                
+                # On rajoute le séparateur pour que la fonction de traitement fonctionne correctement
+                full_hand_text = 'Winamax Poker -' + hand_text
+                hand_net = process_cash_game_hand(full_hand_text, user_name)
+                net_result += hand_net
+                hand_results.append(net_result)
+                total_hands += 1
+        
+        # Mettre à jour le résumé
+        summary_text = f"Fichiers analysés: {len(hand_history_files)} | Mains jouées: {total_hands} | Résultat Net Global: {net_result:+.2f}€"
+        summary_label.config(text=summary_text)
+
+        # Créer le graphique
+        if hand_results:
+            fig, ax = plt.subplots(figsize=(8, 4), dpi=100)
+            ax.plot(hand_results)
+            ax.axhline(0, color='grey', linewidth=0.8, linestyle='--')
+            ax.set_title(f"Performance en Cash Game pour {user_name}")
+            ax.set_xlabel("Nombre de mains")
+            ax.set_ylabel("Résultat Net Cumulé (€)")
+            ax.grid(True)
+            fig.tight_layout()
+
+            canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
+            canvas.draw()
+            canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        else:
+            summary_label.config(text="Aucune main valide trouvée dans les fichiers.")
+
+    except Exception as e:
+        summary_label.config(text=f"Erreur lors de l'analyse: {e}")
+
+
 def create_gui():
     """Creates the main GUI window for the poker EV calculator with improved layout."""
     root = tk.Tk()
@@ -599,9 +680,8 @@ def create_gui():
     ante_entry.grid(row=0, column=5, sticky="ew", padx=(5, 0)) # Sticky ew within sub-frame
     ante_entry.insert(0, "0") # Default value example
 
-
     # Frame for player and hand details
-    hand_frame = ttk.LabelFrame(root, text="Player and Hand Details")
+    hand_frame = ttk.LabelFrame(ev_tab, text="Player and Hand Details")
     hand_frame.grid(row=1, column=0, padx=15, pady=10, sticky="ew") # Increased padding
 
     # Configure hand_frame grid
@@ -621,7 +701,7 @@ def create_gui():
 
 
     # Frame for opponent and action details
-    action_frame = ttk.LabelFrame(root, text="Opponent and Action Details")
+    action_frame = ttk.LabelFrame(ev_tab, text="Opponent and Action Details")
     action_frame.grid(row=2, column=0, padx=15, pady=10, sticky="ew") # Increased padding
 
     # Configure action_frame grid
@@ -659,7 +739,7 @@ def create_gui():
 
 
     # Output Area
-    output_frame = ttk.LabelFrame(root, text="Result")
+    output_frame = ttk.LabelFrame(ev_tab, text="Result")
     output_frame.grid(row=3, column=0, padx=15, pady=10, sticky="ew") # Increased padding
 
     # Configure output_frame grid
@@ -756,6 +836,38 @@ def create_gui():
 
     # Lier la fonction au bouton d'analyse
     analyze_button.config(command=lambda: run_tournament_analysis_gui(gui_elements))
+
+
+    # --- Onglet 3: Analyse de Cash Game ---
+    cash_game_tab = ttk.Frame(notebook, padding="10")
+    notebook.add(cash_game_tab, text="Analyse Cash Game")
+    cash_game_tab.columnconfigure(0, weight=1)
+    cash_game_tab.rowconfigure(1, weight=1) # Permet au graphique de s'étendre
+
+    # Frame pour les contrôles
+    cg_controls_frame = ttk.Frame(cash_game_tab)
+    cg_controls_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+    cg_analyze_button = ttk.Button(cg_controls_frame, text="Lancer l'analyse Cash Game")
+    cg_analyze_button.pack()
+
+    # Frame pour le graphique
+    cg_canvas_frame = ttk.LabelFrame(cash_game_tab, text="Graphique des gains cumulés (Cash Game)")
+    cg_canvas_frame.grid(row=1, column=0, sticky="nsew", pady=5)
+    cg_canvas_frame.columnconfigure(0, weight=1)
+    cg_canvas_frame.rowconfigure(0, weight=1)
+
+    # Label pour le résumé global
+    cg_summary_label = ttk.Label(cash_game_tab, text="Prêt à analyser.", anchor="w", font=('TkDefaultFont', 9, 'bold'))
+    cg_summary_label.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+
+    # Ajouter les nouveaux éléments au dictionnaire
+    gui_elements['cg_canvas_frame'] = cg_canvas_frame
+    gui_elements['cg_summary_label'] = cg_summary_label
+    gui_elements['cg_analyze_button'] = cg_analyze_button
+
+    # Lier la fonction au bouton d'analyse
+    cg_analyze_button.config(command=lambda: run_cash_game_analysis_gui(gui_elements))
+
 
     return root, gui_elements
 
