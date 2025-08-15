@@ -2,6 +2,22 @@
 import os
 import re
 
+# --- Constants for Hand History Parsing ---
+MARKER_DEALT_TO = "Dealt to "
+MARKER_FLOP = "*** FLOP ***"
+MARKER_TURN = "*** TURN ***"
+MARKER_RIVER = "*** RIVER ***"
+MARKER_SHOWDOWN = "*** SHOW DOWN ***"
+MARKER_SUMMARY = "*** SUMMARY ***"
+
+# --- Pre-compiled Regular Expressions for Efficiency ---
+RE_TABLE = re.compile(r"Table: '(.+?)'")
+RE_HAND = re.compile(r'\[(.+?)\]')
+RE_BOARD = re.compile(r'\[(.*?)\]')
+RE_AMOUNT = re.compile(r'(\d+\.?\d*)€')
+RE_RAKE = re.compile(r'Rake (\d+\.?\d*)€')
+
+
 def process_hand(hand_text, user_name):
     """
     Traite une seule main de poker et retourne un dictionnaire avec les détails de la main,
@@ -14,38 +30,52 @@ def process_hand(hand_text, user_name):
     hero_hand = "N/A"
     table_name = "N/A"
     community_cards = "" # Initialisé à une chaîne vide
+    is_showdown = MARKER_SHOWDOWN in hand_text
+    rake = 0.0
+
+    # --- AJOUT DES STATISTIQUES ---
+    vpip = False
+    pfr = False
+    three_bet = False
+    preflop_actions = []
+    preflop = True
 
     # Extraire le nom de la table
     if hand_lines:
-        match_table = re.search(r"Table: '(.+?)'", hand_lines[0])
+        match_table = RE_TABLE.search(hand_lines[0])
         if match_table:
             table_name = match_table.group(1)
 
     for line in hand_lines:
         # Extraire la main du joueur
-        if line.startswith(f"Dealt to {user_name}"):
-            match_hand = re.search(r'\[(.+?)\]', line)
+        if line.startswith(f"{MARKER_DEALT_TO}{user_name}"):
+            match_hand = RE_HAND.search(line)
             if match_hand:
                 hero_hand = match_hand.group(1).replace(" ", "")
         
         # Extraire les cartes communautaires (flop, turn, river)
-        if "*** FLOP ***" in line:
-            match_board = re.search(r'\[(.*?)\]', line)
+        if MARKER_FLOP in line:
+            match_board = RE_BOARD.search(line)
             if match_board:
                 community_cards = match_board.group(1).replace(" ", "")
-        elif "*** TURN ***" in line or "*** RIVER ***" in line:
-            match_board = re.search(r'\[(.*?)\]', line)
+        elif MARKER_TURN in line or MARKER_RIVER in line:
+            match_board = RE_BOARD.search(line)
             if match_board:
                 # La ligne contient toutes les cartes jusqu'à ce stade
                 community_cards = match_board.group(1).replace(" ", "")
 
-        if "*** SUMMARY ***" in line:
+        if MARKER_SUMMARY in line:
             is_summary = True
         
+        if is_summary and "Rake" in line:
+            match_rake = RE_RAKE.search(line)
+            if match_rake:
+                rake = float(match_rake.group(1))
+
         if user_name in line:
             if not is_summary and ("bets" in line or "raises" in line or "calls" in line or "posts" in line):
                 try:
-                    amounts = re.findall(r'(\d+\.?\d*)€', line)
+                    amounts = RE_AMOUNT.findall(line)
                     if amounts:
                         bet_amount += float(amounts[-1])
                 except (ValueError, IndexError):
@@ -53,19 +83,71 @@ def process_hand(hand_text, user_name):
 
             if is_summary and "won" in line:
                 try:
-                    match = re.search(r'(\d+\.?\d*)€', line)
+                    match = RE_AMOUNT.search(line)
                     if match:
                         won_amount = float(match.group(1))
                 except (ValueError, IndexError):
                     pass
                     
+        # Detect preflop actions for VPIP/PFR/3bet
+        if preflop:
+            if line.startswith('*** FLOP ***'):
+                preflop = False
+            elif user_name in line:
+                # Exclude posts (blinds/antes)
+                if any(word in line for word in ['calls', 'raises', 'bets']):
+                    if 'posts' not in line:
+                        vpip = True
+                if 'raises' in line and 'posts' not in line:
+                    pfr = True
+                    preflop_actions.append('raise')
+                elif 'calls' in line and 'posts' not in line:
+                    preflop_actions.append('call')
+                elif 'bets' in line and 'posts' not in line:
+                    preflop_actions.append('bet')
+
+    # Detect 3-bet: If hero raises and there was already a raise before
+    # (i.e., hero's first preflop action is a raise and there was a previous raise)
+    # We'll check if there is more than one 'raise' in preflop actions
+    if preflop_actions.count('raise') >= 1:
+        # If hero's first preflop action is a raise and there was a previous raise
+        # (i.e., hero's raise is not the first raise in the hand)
+        # We'll check if there is a raise before hero's raise
+        # For simplicity, if hero's first action is a raise and it's not the first raise in the hand
+        # We'll look for 'raises' in preflop lines before hero's first raise
+        hero_acted = False
+        for line in hand_lines:
+            if line.startswith('*** FLOP ***'):
+                break
+            if user_name in line and 'raises' in line and 'posts' not in line:
+                hero_acted = True
+                break
+            if 'raises' in line and user_name not in line and 'posts' not in line and not hero_acted:
+                three_bet = True
+                break
+
+    # --- FIN AJOUT STATISTIQUES ---
+    net = won_amount - bet_amount
+    net_non_showdown = 0
+    if not is_showdown:
+        net_non_showdown = net
+
+    # Only count rake if the user won the hand
+    if won_amount == 0:
+        rake = 0.0
+
     return {
         "hand": hero_hand, # Renommé pour la cohérence
         "table": table_name,
         "bet_amount": bet_amount,
         "gains": won_amount,
-        "net": won_amount - bet_amount,
-        "community_cards": community_cards if community_cards else "N/A"
+        "net": net,
+        "community_cards": community_cards if community_cards else "N/A",
+        "net_non_showdown": net_non_showdown,
+        "rake": rake,
+        "vpip": vpip,
+        "pfr": pfr,
+        "three_bet": three_bet,
     }
 
 def analyser_resultats_cash_game(repertoire, user_name):
@@ -75,8 +157,10 @@ def analyser_resultats_cash_game(repertoire, user_name):
     if not os.path.isdir(repertoire):
         raise FileNotFoundError(f"Le répertoire '{repertoire}' n'existe pas.")
 
-    net_result, total_gains, total_mise = 0.0, 0.0, 0.0
+    net_result, total_gains, total_mise, total_rake = 0.0, 0.0, 0.0, 0.0
+    net_non_showdown_cumulative = 0.0
     hand_results_cumulative = []
+    non_showdown_results_cumulative = []
     all_hands_details = []
     
     excluded_keywords = ["Freeroll", "Expresso", "Kill The Fish", "summary"]
@@ -87,6 +171,11 @@ def analyser_resultats_cash_game(repertoire, user_name):
         for item in sorted(all_items)
         if item.endswith('.txt') and not any(keyword in item for keyword in excluded_keywords)
     ]
+
+    vpip_count = 0
+    pfr_count = 0
+    three_bet_count = 0
+    total_hands = 0
 
     for file_path in hand_history_files:
         with open(file_path, 'r', encoding='utf-8') as file:
@@ -105,15 +194,36 @@ def analyser_resultats_cash_game(repertoire, user_name):
             
             net_result += hand_details["net"]
             hand_results_cumulative.append(net_result)
+
+            net_non_showdown_cumulative += hand_details["net_non_showdown"]
+            non_showdown_results_cumulative.append(net_non_showdown_cumulative)
+
             total_mise += hand_details["bet_amount"]
             total_gains += hand_details["gains"]
+            total_rake += hand_details["rake"]
+            total_hands += 1
+            if hand_details.get("vpip"):
+                vpip_count += 1
+            if hand_details.get("pfr"):
+                pfr_count += 1
+            if hand_details.get("three_bet"):
+                three_bet_count += 1
+
+    vpip_pct = (vpip_count / total_hands * 100) if total_hands else 0
+    pfr_pct = (pfr_count / total_hands * 100) if total_hands else 0
+    three_bet_pct = (three_bet_count / total_hands * 100) if total_hands else 0
     return {
         "details": all_hands_details,
         "resultat_net_total": net_result,
         "total_hands": len(all_hands_details),
         "cumulative_results": hand_results_cumulative,
+        "cumulative_non_showdown_results": non_showdown_results_cumulative,
         "total_mise": total_mise,
-        "total_gains": total_gains
+        "total_gains": total_gains,
+        "total_rake": total_rake,
+        "vpip_pct": vpip_pct,
+        "pfr_pct": pfr_pct,
+        "three_bet_pct": three_bet_pct,
     }
 
 if __name__ == '__main__':

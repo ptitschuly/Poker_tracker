@@ -201,7 +201,16 @@ def run_analysis(analysis_function, widgets, graph_config):
             total_mise = results.get("total_mise", 0.0)
             total_gains = results.get("total_gains", 0.0)
             net_result = results.get("resultat_net_total", 0.0)
-            summary_text = f"Mains jouées: {total_hands} | Total misé: {total_mise:.2f}€ | Total gagné: {total_gains:.2f}€ | Résultat Net Global: {net_result:+.2f}€"
+            total_rake = results.get("total_rake", 0.0)
+            vpip_pct = results.get("vpip_pct", 0.0)
+            pfr_pct = results.get("pfr_pct", 0.0)
+            three_bet_pct = results.get("three_bet_pct", 0.0)
+            summary_text = (
+                f"Mains jouées: {total_hands} | Total misé: {total_mise:.2f}€ | "
+                f"Total gagné: {total_gains:.2f}€ | Rake payé: {total_rake:.2f}€ | "
+                f"Résultat Net Global: {net_result:+.2f}€\n"
+                f"VPIP: {vpip_pct:.1f}% | PFR: {pfr_pct:.1f}% | 3-bet: {three_bet_pct:.1f}%"
+            )
         else:
             # Format pour les tournois et expressos
             count = results.get("nombre_tournois") or results.get("nombre_expressos", 0)
@@ -219,12 +228,20 @@ def run_analysis(analysis_function, widgets, graph_config):
         # Création du graphique
         if "cumulative_results" in results and results["cumulative_results"]:
             fig, ax = plt.subplots(figsize=(8, 4), dpi=100)
-            ax.plot(results["cumulative_results"], marker='o', linestyle='-', markersize=3, color=graph_config.get('color', 'blue'))
+            
+            # Courbe des gains nets globaux
+            ax.plot(results["cumulative_results"], marker='o', linestyle='-', markersize=2, color=graph_config.get('color', 'blue'), label="Gains Nets")
+            
+            # Courbe des gains sans showdown (ligne rouge) pour le cash game
+            if analysis_function == analyser_resultats_cash_game and "cumulative_non_showdown_results" in results:
+                ax.plot(results["cumulative_non_showdown_results"], linestyle='-', color='red', label="Gains sans Showdown")
+
             ax.axhline(0, color='grey', linewidth=0.8, linestyle='--')
             ax.set_title(graph_config['title'])
             ax.set_xlabel(graph_config['xlabel'])
             ax.set_ylabel("Résultat Net Cumulé (€)")
             ax.grid(True, which='both', linestyle='--', linewidth=0.5)
+            ax.legend()
             fig.tight_layout()
 
             canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
