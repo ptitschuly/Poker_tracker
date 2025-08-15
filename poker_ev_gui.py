@@ -23,6 +23,7 @@ def setup_scenario_from_gui(gui_elements):
     n_players = len(stack_strings)
     if n_players not in (2, 3):
         raise ValueError("Only 2 or 3 players supported.")
+        return None
 
     if n_players == 2: positions = ['SB', 'BB']
     else: positions = ['BTN', 'SB', 'BB']
@@ -47,14 +48,23 @@ def setup_scenario_from_gui(gui_elements):
     ante = float(gui_elements['ante_entry'].get() or '0')
     
     hole_cards_str = gui_elements['hole_cards_entry'].get().strip()
-    player_hole_cards = parse_hand_string(hole_cards_str)
+    try:
+        player_hole_cards = parse_hand_string(hole_cards_str)
+    except ValueError as e:
+        print(f"Error parsing hole cards: {e}")
+        return None
     players[0].hole_cards = player_hole_cards
     
     community_cards_str = gui_elements['community_cards_entry'].get().strip()
-    community_cards = parse_community_cards_string(community_cards_str)
+    try: 
+        community_cards = parse_community_cards_string(community_cards_str)
+    except ValueError as e:
+        print(f"Error parsing community cards: {e}")
+        return None
     if any(card in community_cards for card in player_hole_cards.cards):
         raise ValueError("Overlap between hole cards and community cards.")
-        
+        return None
+    
     scenario = PokerScenario(players, small_blind, big_blind, ante)
     scenario.community_cards = community_cards
     
@@ -126,39 +136,6 @@ def find_optimal_bet_from_gui(gui_elements):
     except Exception as e:
         ev_result_label.config(text=f"Error: {e}", foreground="red")
 
-def calculate_ev_from_gui(gui_elements):
-    """
-    Efficiently parses input values from the GUI dictionary, creates poker objects,
-    calls the calculate_chip_ev function, and updates the GUI label.
-    """
-    ev_result_label = gui_elements['ev_result_label']
-    ev_result_label.config(text="Calculating...", foreground="black")
-
-    try:
-        # 1. Setup the scenario using the new helper function
-        scenario, player_name, opponent_range_string, _, _, _ = setup_scenario_from_gui(gui_elements)
-
-        # 2. Get action details from GUI for single calculation
-        bet_size = float(gui_elements['bet_size_entry'].get() or '0')
-        player_action = gui_elements['action_combobox'].get().strip().lower()
-        if player_action not in ('fold', 'call', 'raise'):
-            raise ValueError("Invalid action.")
-        if player_action == 'raise' and bet_size <= 0:
-            raise ValueError("Raise amount must be positive.")
-
-        # 3. Calculate EV
-        calculated_ev = calculate_chip_ev(
-            scenario=scenario,
-            player_name=player_name,
-            opponent_range_string=opponent_range_string,
-            player_action=player_action,
-            bet_size=bet_size
-        )
-        ev_result_label.config(text=f"{calculated_ev:.2f} Chips", foreground="green")
-
-    except Exception as e:
-        ev_result_label.config(text=f"Error: {e}", foreground="red")
-
 # --- GUI Functions ---
 def run_analysis(analysis_function, widgets, graph_config):
     """
@@ -195,21 +172,36 @@ def run_analysis(analysis_function, widgets, graph_config):
         else:
             results = analysis_function(repertoire)
 
-        # Mise à jour du tableau (si des détails sont retournés)
         if "details" in results:
-            for item in results["details"]:
-                tree.insert("", "end", values=(item.get("fichier", "N/A"), f'{item.get("buy_in", 0):.2f}€', f'{item.get("gains", 0):.2f}€', f'{item.get("net", 0):+.2f}€'))
+            # Spécifique au cash game, on change les colonnes du tableau
+            if analysis_function == analyser_resultats_cash_game:
+                tree.heading('filename', text='Main')
+                tree.heading('buyin', text='Mise')
+                tree.heading('winnings', text='Gains')
+                tree.heading('net', text='Net')
+                tree.heading('community', text='Community Cards') # Ajout du heading
+                for item in results["details"]:
+                    tree.insert("", "end", values=(item.get("hand", "N/A"), f'{item.get("bet_amount", 0):.2f}€', f'{item.get("gains", 0):.2f}€', f'{item.get("net", 0):+.2f}€', item.get("community_cards", "N/A")))
+            else:
+                # Rétablir les colonnes par défaut pour les autres modes
+                tree.heading('filename', text='Fichier / Session')
+                tree.heading('buyin', text='Buy-in')
+                tree.heading('winnings', text='Gains')
+                tree.heading('net', text='Net')
+                for item in results["details"]:
+                    tree.insert("", "end", values=(item.get("fichier", "N/A"), f'{item.get("buy_in", 0):.2f}€', f'{item.get("gains", 0):.2f}€', f'{item.get("net", 0):+.2f}€'))
 
         # --- CORRECTION ---
         # On construit la chaîne de résumé ici, à partir des données reçues.
-        # L'ancien code `summary_label.config(text=results["summary_text"])` est supprimé.
-        
+
         summary_text = ""
         if analysis_function == analyser_resultats_cash_game:
             # Format spécifique pour le cash game
             total_hands = results.get("total_hands", 0)
+            total_mise = results.get("total_mise", 0.0)
+            total_gains = results.get("total_gains", 0.0)
             net_result = results.get("resultat_net_total", 0.0)
-            summary_text = f"Mains jouées: {total_hands} | Résultat Net Global: {net_result:+.2f}€"
+            summary_text = f"Mains jouées: {total_hands} | Total misé: {total_mise:.2f}€ | Total gagné: {total_gains:.2f}€ | Résultat Net Global: {net_result:+.2f}€"
         else:
             # Format pour les tournois et expressos
             count = results.get("nombre_tournois") or results.get("nombre_expressos", 0)
@@ -223,7 +215,6 @@ def run_analysis(analysis_function, widgets, graph_config):
                             f"Résultat Net Global: {net_result:+.2f}€")
 
         summary_label.config(text=summary_text)
-        # --- FIN DE LA CORRECTION ---
 
         # Création du graphique
         if "cumulative_results" in results and results["cumulative_results"]:
@@ -278,6 +269,8 @@ def create_analysis_tab(notebook, tab_name, analysis_function, graph_config):
 
     results_frame = ttk.LabelFrame(tab, text=f"Résultats détaillés ({tab_name})")
     columns = ('filename', 'buyin', 'winnings', 'net')
+    if analysis_function == analyser_resultats_cash_game:
+        columns = ('filename', 'buyin', 'winnings', 'net', 'community')
     tree = ttk.Treeview(results_frame, columns=columns, show='headings')
     scrollbar = ttk.Scrollbar(results_frame, orient=tk.VERTICAL, command=tree.yview)
     
@@ -293,6 +286,8 @@ def create_analysis_tab(notebook, tab_name, analysis_function, graph_config):
     tree.column('buyin', width=80, anchor='e')
     tree.column('winnings', width=80, anchor='e')
     tree.column('net', width=80, anchor='e')
+    if analysis_function == analyser_resultats_cash_game:
+        tree.column('community', width=120, anchor='w')
     tree.configure(yscroll=scrollbar.set)
 
     # --- Placement des widgets ---
@@ -313,7 +308,7 @@ def create_analysis_tab(notebook, tab_name, analysis_function, graph_config):
     return tab
 
 def create_gui():
-    """Creates the main GUI window for the poker EV calculator with improved layout."""
+    """Creates the main GUI window for the poker EV calculator and other tabs"""
     global root # Rendre root accessible globalement pour la fonction d'analyse
     root = tk.Tk()
     root.title("Poker Tools")

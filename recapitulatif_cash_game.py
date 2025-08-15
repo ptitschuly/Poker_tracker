@@ -5,14 +5,15 @@ import re
 def process_hand(hand_text, user_name):
     """
     Traite une seule main de poker et retourne un dictionnaire avec les détails de la main,
-    y compris la main de départ du joueur.
+    y compris la main de départ du joueur et les cartes communautaires.
     """
     hand_lines = hand_text.strip().split('\n')
     bet_amount = 0.0
     won_amount = 0.0
     is_summary = False
-    hero_hand = "N/A" # Remplacera hand_id
+    hero_hand = "N/A"
     table_name = "N/A"
+    community_cards = "" # Initialisé à une chaîne vide
 
     # Extraire le nom de la table
     if hand_lines:
@@ -21,13 +22,22 @@ def process_hand(hand_text, user_name):
             table_name = match_table.group(1)
 
     for line in hand_lines:
-        # --- NOUVELLE LOGIQUE POUR TROUVER LA MAIN ---
+        # Extraire la main du joueur
         if line.startswith(f"Dealt to {user_name}"):
             match_hand = re.search(r'\[(.+?)\]', line)
             if match_hand:
-                # Nettoie la main (ex: "7s 2h" -> "7s2h")
                 hero_hand = match_hand.group(1).replace(" ", "")
-        # --- FIN DE LA NOUVELLE LOGIQUE ---
+        
+        # Extraire les cartes communautaires (flop, turn, river)
+        if "*** FLOP ***" in line:
+            match_board = re.search(r'\[(.*?)\]', line)
+            if match_board:
+                community_cards = match_board.group(1).replace(" ", "")
+        elif "*** TURN ***" in line or "*** RIVER ***" in line:
+            match_board = re.search(r'\[(.*?)\]', line)
+            if match_board:
+                # La ligne contient toutes les cartes jusqu'à ce stade
+                community_cards = match_board.group(1).replace(" ", "")
 
         if "*** SUMMARY ***" in line:
             is_summary = True
@@ -50,9 +60,12 @@ def process_hand(hand_text, user_name):
                     pass
                     
     return {
-        "hero_hand": hero_hand, # Clé modifiée
+        "hand": hero_hand, # Renommé pour la cohérence
         "table": table_name,
-        "net": won_amount - bet_amount
+        "bet_amount": bet_amount,
+        "gains": won_amount,
+        "net": won_amount - bet_amount,
+        "community_cards": community_cards if community_cards else "N/A"
     }
 
 def analyser_resultats_cash_game(repertoire, user_name):
@@ -62,7 +75,7 @@ def analyser_resultats_cash_game(repertoire, user_name):
     if not os.path.isdir(repertoire):
         raise FileNotFoundError(f"Le répertoire '{repertoire}' n'existe pas.")
 
-    net_result = 0.0
+    net_result, total_gains, total_mise = 0.0, 0.0, 0.0
     hand_results_cumulative = []
     all_hands_details = []
     
@@ -92,22 +105,29 @@ def analyser_resultats_cash_game(repertoire, user_name):
             
             net_result += hand_details["net"]
             hand_results_cumulative.append(net_result)
-            
+            total_mise += hand_details["bet_amount"]
+            total_gains += hand_details["gains"]
     return {
         "details": all_hands_details,
         "resultat_net_total": net_result,
         "total_hands": len(all_hands_details),
-        "cumulative_results": hand_results_cumulative
+        "cumulative_results": hand_results_cumulative,
+        "total_mise": total_mise,
+        "total_gains": total_gains
     }
 
 if __name__ == '__main__':
     chemin = input("Entrez le chemin du dossier d'historique : ")
     pseudo = input("Entrez votre pseudo Winamax : ")
+    #resultats = analyser_resultats_cash_game(chemin, pseudo)
+    #print(resultats)
+    
     try:
         resultats = analyser_resultats_cash_game(chemin, pseudo)
-        print("\n--- RÉSUMÉ GLOBAL CASH GAME ---")
-        print(f"Fichiers analysés : {resultats['files_analyzed']}")
+        print("\n--- RÉSUMÉ GLOBAL CASH GAME ---")        
         print(f"Mains jouées : {resultats['total_hands']}")
-        print(f"Résultat Net Global : {resultats['net_result']:+.2f}€")
+        print(f"Total des mises : {resultats['total_mise']:.2f}€")
+        print(f"Total des gains : {resultats['total_gains']:.2f}€")
+        print(f"Résultat Net Global : {resultats['resultat_net_total']:+.2f}€")
     except FileNotFoundError as e:
         print(e)

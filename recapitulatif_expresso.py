@@ -63,7 +63,7 @@ if __name__ == "__main__":
     try:
         resultats = analyser_resultats_expresso(chemin)
         print("\n--- RÉSUMÉ GLOBAL EXPRESSO ---")
-        print(f"Nombre d'Expressos analysés : {resultats['nombre_traites']}")
+        print(f"Nombre d'Expressos analysés : {resultats['nombre_expressos']}")
         print(f"Total des Buy-ins : {resultats['total_buy_ins']:.2f}€")
         print(f"Total des Gains : {resultats['total_gains']:.2f}€")
         print(f"Résultat Net Global : {resultats['resultat_net_total']:+.2f}€")
