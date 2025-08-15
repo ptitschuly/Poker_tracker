@@ -18,6 +18,24 @@ RE_AMOUNT = re.compile(r'(\d+\.?\d*)€')
 RE_RAKE = re.compile(r'Rake (\d+\.?\d*)€')
 
 
+def normalize_hand(hand_str):
+    """
+    Convertit une main comme 'AsKd' ou '7c6d' en format 'AKs', '76o', etc.
+    L'ordre des cartes est toujours décroissant selon AKQJT98765432.
+    """
+    if len(hand_str) != 4:
+        return hand_str  # fallback for malformed hands
+    r1, s1, r2, s2 = hand_str[0], hand_str[1], hand_str[2], hand_str[3]
+    ranks = "AKQJT98765432"
+    # Ordonner les cartes par rang décroissant
+    if r1 == r2:
+        return f"{r1}{r1}"
+    if s1 == s2:
+        return f"{r1}{r2}s"
+    else:
+        return f"{r1}{r2}o"
+
+
 def process_hand(hand_text, user_name):
     """
     Traite une seule main de poker et retourne un dictionnaire avec les détails de la main,
@@ -32,6 +50,7 @@ def process_hand(hand_text, user_name):
     community_cards = "" # Initialisé à une chaîne vide
     is_showdown = MARKER_SHOWDOWN in hand_text
     rake = 0.0
+    normalized_hand = None
 
     # --- AJOUT DES STATISTIQUES ---
     vpip = False
@@ -52,6 +71,7 @@ def process_hand(hand_text, user_name):
             match_hand = RE_HAND.search(line)
             if match_hand:
                 hero_hand = match_hand.group(1).replace(" ", "")
+                normalized_hand = normalize_hand(hero_hand)
         
         # Extraire les cartes communautaires (flop, turn, river)
         if MARKER_FLOP in line:
@@ -148,6 +168,7 @@ def process_hand(hand_text, user_name):
         "vpip": vpip,
         "pfr": pfr,
         "three_bet": three_bet,
+        "normalized_hand": normalized_hand,
     }
 
 def analyser_resultats_cash_game(repertoire, user_name):
@@ -176,6 +197,7 @@ def analyser_resultats_cash_game(repertoire, user_name):
     pfr_count = 0
     three_bet_count = 0
     total_hands = 0
+    hand_type_results = {}
 
     for file_path in hand_history_files:
         with open(file_path, 'r', encoding='utf-8') as file:
@@ -208,6 +230,10 @@ def analyser_resultats_cash_game(repertoire, user_name):
                 pfr_count += 1
             if hand_details.get("three_bet"):
                 three_bet_count += 1
+            nh = hand_details.get("normalized_hand")
+            if nh:
+                hand_type_results.setdefault(nh, 0.0)
+                hand_type_results[nh] += hand_details["net"]
 
     vpip_pct = (vpip_count / total_hands * 100) if total_hands else 0
     pfr_pct = (pfr_count / total_hands * 100) if total_hands else 0
@@ -224,6 +250,7 @@ def analyser_resultats_cash_game(repertoire, user_name):
         "vpip_pct": vpip_pct,
         "pfr_pct": pfr_pct,
         "three_bet_pct": three_bet_pct,
+        "hand_type_results": hand_type_results,
     }
 
 if __name__ == '__main__':
@@ -240,4 +267,5 @@ if __name__ == '__main__':
         print(f"Total des gains : {resultats['total_gains']:.2f}€")
         print(f"Résultat Net Global : {resultats['resultat_net_total']:+.2f}€")
     except FileNotFoundError as e:
+        print(e)
         print(e)

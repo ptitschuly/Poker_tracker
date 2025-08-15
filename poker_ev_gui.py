@@ -5,6 +5,7 @@ import os
 import re
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import csv
 
 from recapitulatif_tournoi import analyser_resultats_tournois
 from recapitulatif_expresso import analyser_resultats_expresso
@@ -12,8 +13,6 @@ from recapitulatif_cash_game import analyser_resultats_cash_game
 
 from poker_logic import create_deck, Card, Hand, RANKS, SUITS, Player, PokerScenario, parse_hand_string, parse_community_cards_string
 from poker_calculations import calculate_equity_fast, parse_range_string, calculate_chip_ev
-
-# Initialize the evaluator once to avoid repeated instantiation
 
 def setup_scenario_from_gui(gui_elements):
     """Parses all GUI inputs and returns a configured scenario and key player details."""
@@ -206,7 +205,7 @@ def run_analysis(analysis_function, widgets, graph_config):
             pfr_pct = results.get("pfr_pct", 0.0)
             three_bet_pct = results.get("three_bet_pct", 0.0)
             summary_text = (
-                f"Mains jouées: {total_hands} | Total misé: {total_mise:.2f}€ | "
+                f"Mains: {total_hands} | Total misé: {total_mise:.2f}€ | "
                 f"Total gagné: {total_gains:.2f}€ | Rake payé: {total_rake:.2f}€ | "
                 f"Résultat Net Global: {net_result:+.2f}€\n"
                 f"VPIP: {vpip_pct:.1f}% | PFR: {pfr_pct:.1f}% | 3-bet: {three_bet_pct:.1f}%"
@@ -224,6 +223,12 @@ def run_analysis(analysis_function, widgets, graph_config):
                             f"Résultat Net Global: {net_result:+.2f}€")
 
         summary_label.config(text=summary_text)
+
+        # --- Enable the hand type results button for cash game ---
+        if analysis_function == analyser_resultats_cash_game and "hand_type_results" in results:
+            if 'hand_type_btn' in widgets:
+                widgets['hand_type_btn'].config(state='normal')
+                widgets['hand_type_btn'].results = results["hand_type_results"]
 
         # Création du graphique
         if "cumulative_results" in results and results["cumulative_results"]:
@@ -248,7 +253,7 @@ def run_analysis(analysis_function, widgets, graph_config):
             canvas.draw()
             canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         else:
-             for widget in canvas_frame.winfo_children():
+            for widget in canvas_frame.winfo_children():
                 widget.destroy()
 
 
@@ -256,6 +261,77 @@ def run_analysis(analysis_function, widgets, graph_config):
         summary_label.config(text=str(e))
     except Exception as e:
         summary_label.config(text=f"Une erreur est survenue: {e}")
+
+def show_hand_type_results_popup(hand_type_results):
+    popup = tk.Toplevel()
+    popup.title("Résultats par main de départ (matrice)")
+    popup.geometry("900x700")
+    frame = ttk.Frame(popup, padding=10)
+    frame.pack(fill="both", expand=True)
+
+    ranks = "AKQJT98765432"
+    n = len(ranks)
+
+    # Créer l'entête de colonnes
+    header_frame = ttk.Frame(frame)
+    header_frame.pack(fill="x")
+    ttk.Label(header_frame, text="", width=5).grid(row=0, column=0)  # coin vide
+    for j, r in enumerate(ranks):
+        ttk.Label(header_frame, text=r, width=6, anchor="center", relief="ridge").grid(row=0, column=j+1, padx=1, pady=1)
+
+    # Créer la matrice
+    matrix_frame = ttk.Frame(frame)
+    matrix_frame.pack(fill="both", expand=True)
+
+    for i, r1 in enumerate(ranks):
+        ttk.Label(matrix_frame, text=r1, width=6, anchor="center", relief="ridge").grid(row=i, column=0, padx=1, pady=1)
+        for j, r2 in enumerate(ranks):
+            if i == j:
+                hand = f"{r1}{r2}"
+            elif i < j: 
+                hand = f"{r1}{r2}s"
+            elif i > j:
+                hand = f"{r1}{r2}o"
+            value = hand_type_results.get(hand)
+            display = f"{value:+.2f}" if value is not None else ""
+            label = ttk.Label(matrix_frame, text=display, width=6, anchor="center", relief="solid")
+            if value is not None:
+                if value > 0:
+                    label.configure(background="#c8e6c9")  # vert clair
+                elif value < 0:
+                    label.configure(background="#ffcdd2")  # rouge clair
+            label.grid(row=i, column=j+1, padx=1, pady=1)
+
+    def export_csv():
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv")],
+            title="Exporter résultats par main (matrice)"
+        )
+        if file_path:
+            with open(file_path, "w", newline='', encoding="utf-8") as f:
+                import csv
+                writer = csv.writer(f)
+                writer.writerow([""] + list(ranks))
+                for i, r1 in enumerate(ranks):
+                    row = [r1]
+                    for j, r2 in enumerate(ranks):
+                        if i == j:
+                            hand = f"{r1}{r1}"
+                        elif i < j:
+                            hand = f"{r1}{r2}s"
+                        else:
+                            hand = f"{r1}{r2}o"
+                        value = hand_type_results.get(hand)
+                        row.append(f"{value:+.2f}" if value is not None else "")
+                    writer.writerow(row)
+
+    btn_frame = ttk.Frame(frame)
+    btn_frame.pack(pady=10)
+    export_btn = ttk.Button(btn_frame, text="Exporter CSV", command=export_csv)
+    export_btn.pack(side=tk.LEFT, padx=5)
+    close_btn = ttk.Button(btn_frame, text="Fermer", command=popup.destroy)
+    close_btn.pack(side=tk.LEFT, padx=5)
 
 def create_analysis_tab(notebook, tab_name, analysis_function, graph_config):
     """
@@ -318,8 +394,26 @@ def create_analysis_tab(notebook, tab_name, analysis_function, graph_config):
     canvas_frame.grid(row=2, column=0, sticky="nsew", pady=5)
     summary_label.grid(row=3, column=0, sticky="ew", pady=(10, 0))
 
+    # --- Add the hand type results button for cash game, but keep it disabled until analysis ---
+    hand_type_btn = None
+    if analysis_function == analyser_resultats_cash_game:
+        def open_hand_type_results():
+            # Use the latest results stored in the button
+            if hasattr(hand_type_btn, 'results'):
+                show_hand_type_results_popup(hand_type_btn.results)
+        hand_type_btn = ttk.Button(tab, text="Voir résultats par main", command=open_hand_type_results, state='disabled')
+        hand_type_btn.grid(row=4, column=0, sticky="ew", pady=(5, 0))
+
     # --- Lier la commande ---
-    widgets = {'tree': tree, 'canvas_frame': canvas_frame, 'summary_label': summary_label, 'user_name_entry': user_name_entry}
+    widgets = {
+        'tree': tree,
+        'canvas_frame': canvas_frame,
+        'summary_label': summary_label,
+        'user_name_entry': user_name_entry,
+    }
+    if hand_type_btn:
+        widgets['hand_type_btn'] = hand_type_btn
+
     analyze_button.config(command=lambda: run_analysis(analysis_function, widgets, graph_config))
 
     return tab
