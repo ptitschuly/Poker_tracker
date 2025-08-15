@@ -55,3 +55,22 @@ python poker_ev_gui.py
 ```
 
 La fenêtre de l'application devrait alors s'ouvrir.
+
+## Testing et Validation
+
+Ce projet inclut un agent de tests automatisé pour valider le bon fonctionnement de toutes les fonctionnalités.
+
+### Lancer les tests
+
+```bash
+# Lancer tous les tests
+python test_runner_agent.py
+
+# Lancer les tests avec sortie détaillée
+python test_runner_agent.py --verbose
+
+# Lister tous les tests disponibles
+python test_runner_agent.py --list
+```
+
+Pour plus d'informations sur les tests, consultez `TEST_RUNNER_DOCS.md`.
