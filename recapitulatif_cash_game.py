@@ -15,64 +15,8 @@ MARKER_SUMMARY = "*** SUMMARY ***"
 RE_TABLE = re.compile(r"Table: '(.+?)'")
 RE_HAND = re.compile(r'\[(.+?)\]')
 RE_BOARD = re.compile(r'\[(.*?)\]')
-RE_AMOUNT = re.compile(r'(\d+\.?\d*)€?')  # Support both with and without €
-RE_RAKE = re.compile(r'Rake (\d+\.?\d*)€?')
-RE_BUTTON = re.compile(r'Seat #(\d+) is the button')
-RE_SEAT = re.compile(r'Seat (\d+): ([^(]+) \(')
-RE_DATE = re.compile(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})')
-RE_WON = re.compile(r'(\w+) won \((\d+\.?\d*)\)')  # Parse "Player won (amount)"
-RE_COLLECTED = re.compile(r'(\w+) collected (\d+\.?\d*) from pot')  # Parse "Player collected amount from pot"
-
-
-def get_hero_position(hand_text, user_name):
-    """
-    Détermine la position du héros relative au bouton.
-    Retourne la position (BTN, SB, BB, UTG, CO, etc.) ou "Unknown" si non trouvée.
-    """
-    lines = hand_text.strip().split('\n')
-    button_seat = None
-    hero_seat = None
-    seat_count = 0
-    
-    # Trouver le siège du bouton et le siège du héros
-    for line in lines:
-        button_match = RE_BUTTON.search(line)
-        if button_match:
-            button_seat = int(button_match.group(1))
-        
-        seat_match = RE_SEAT.search(line)
-        if seat_match:
-            seat_num = int(seat_match.group(1))
-            player_name = seat_match.group(2).strip()
-            seat_count = max(seat_count, seat_num)
-            
-            if player_name == user_name:
-                hero_seat = seat_num
-    
-    if button_seat is None or hero_seat is None:
-        return "Unknown"
-    
-    # Calculer la position relative
-    # Distance du héros par rapport au bouton (dans le sens horaire)
-    position_offset = (hero_seat - button_seat) % seat_count
-    
-    # Déterminer la position selon le nombre de sièges
-    if seat_count == 2:
-        positions = ["BTN", "BB"]  # En heads-up, BTN est aussi SB
-    elif seat_count == 3:
-        positions = ["BTN", "SB", "BB"]
-    elif seat_count == 4:
-        positions = ["BTN", "SB", "BB", "CO"]
-    elif seat_count == 5:
-        positions = ["BTN", "SB", "BB", "UTG", "CO"]
-    elif seat_count == 6:
-        positions = ["BTN", "SB", "BB", "UTG", "MP", "CO"]
-    elif seat_count == 9:
-        positions = ["BTN", "SB", "BB", "UTG", "UTG+1", "MP", "MP+1", "CO", "HJ"]
-    else:
-        return f"Seat{hero_seat}"  # Fallback pour tables non standards
-    
-    return positions[position_offset] if position_offset < len(positions) else "Unknown"
+RE_AMOUNT = re.compile(r'(\d+\.?\d*)€')
+RE_RAKE = re.compile(r'Rake (\d+\.?\d*)€')
 
 def normalize_hand(hand_str):
 	"""
@@ -111,7 +55,7 @@ def normalize_hand(hand_str):
 def process_hand(hand_text, user_name):
     """
     Traite une seule main de poker et retourne un dictionnaire avec les détails de la main,
-    y compris la main de départ du joueur, les cartes communautaires, la position et la date.
+    y compris la main de départ du joueur et les cartes communautaires.
     """
     hand_lines = hand_text.strip().split('\n')
     bet_amount, won_amount = 0.0, 0.0
@@ -121,16 +65,8 @@ def process_hand(hand_text, user_name):
     community_cards = "" # Initialisé à une chaîne vide
     is_showdown = MARKER_SHOWDOWN in hand_text
     rake = 0.0
-    normalized_hand = None    
-    # Nouveau: position et date
-    position = get_hero_position(hand_text, user_name)
-    date_str = None
-    
-    # Extraire la date depuis la première ligne
-    if hand_lines:
-        date_match = RE_DATE.search(hand_lines[0])
-        if date_match:
-            date_str = date_match.group(1)
+    normalized_hand = None
+    position = None  # <-- Ajout pour la position
 
     # --- AJOUT DES STATISTIQUES ---
     vpip = False
@@ -140,11 +76,10 @@ def process_hand(hand_text, user_name):
     preflop = True
 
     # Extraire le nom de la table
-    for line in hand_lines:
-        match_table = RE_TABLE.search(line)
+    if hand_lines:
+        match_table = RE_TABLE.search(hand_lines[0])
         if match_table:
             table_name = match_table.group(1)
-            break
 
     for line in hand_lines:
         # Extraire la main du joueur
@@ -178,17 +113,7 @@ def process_hand(hand_text, user_name):
             if match_rake:
                 rake = float(match_rake.group(1))
 
-        # Check for winnings in different formats
         if user_name in line:
-            # Check for "collected" format
-            collected_match = RE_COLLECTED.search(line)
-            if collected_match and collected_match.group(1) == user_name:
-                try:
-                    won_amount += float(collected_match.group(2))
-                except (ValueError, IndexError):
-                    pass
-            
-            # Bet amounts (not in summary)
             if not is_summary and ("bets" in line or "raises" in line or "calls" in line or "posts" in line):
                 try:
                     amounts = RE_AMOUNT.findall(line)
@@ -197,12 +122,11 @@ def process_hand(hand_text, user_name):
                 except (ValueError, IndexError):
                     pass
 
-            # Summary winnings
             if is_summary and "won" in line:
                 try:
                     match = RE_AMOUNT.search(line)
                     if match:
-                        won_amount += float(match.group(1))
+                        won_amount = float(match.group(1))
                 except (ValueError, IndexError):
                     pass
                     
@@ -266,20 +190,12 @@ def process_hand(hand_text, user_name):
         "pfr": pfr,
         "three_bet": three_bet,
         "normalized_hand": normalized_hand,
-        "position": position,
-        "date": date_str,
-
+        "position": position,  # <-- Ajouté ici
     }
 
-def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, position_filter=None):
+def analyser_resultats_cash_game(repertoire, user_name):
     """
     Analyse les fichiers de cash game et retourne les détails de chaque main.
-    
-    Args:
-        repertoire: Chemin vers le répertoire contenant les fichiers de historique
-        user_name: Nom du joueur à analyser
-        date_filter: Tuple (date_debut, date_fin) au format 'YYYY-MM-DD' ou None pour pas de filtre
-        position_filter: Liste des positions à inclure (ex: ['BTN', 'CO']) ou None pour toutes
     """
     if not os.path.isdir(repertoire):
         raise FileNotFoundError(f"Le répertoire '{repertoire}' n'existe pas.")
@@ -318,25 +234,6 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
             
             full_hand_text = 'Winamax Poker -' + hand_text
             hand_details = process_hand(full_hand_text, user_name)
-            
-            # Application des filtres
-            if date_filter:
-                hand_date = hand_details.get("date")
-                if hand_date:
-                    # Extraire seulement la date (YYYY-MM-DD) de la chaîne complète
-                    hand_date_only = hand_date.split(' ')[0]
-                    if date_filter[0] and hand_date_only < date_filter[0]:
-                        continue
-                    if date_filter[1] and hand_date_only > date_filter[1]:
-                        continue
-                else:
-                    # Si pas de date trouvée et qu'un filtre de date est appliqué, ignorer
-                    continue
-            
-            if position_filter:
-                hand_position = hand_details.get("position")
-                if hand_position not in position_filter:
-                    continue
             
             all_hands_details.append(hand_details)
             
