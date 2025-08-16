@@ -1,6 +1,7 @@
 # filepath: c:\Users\schut\Documents\Projet_Winamax\Tracker_poker\recapitulatif_cash_game.py
 import os
 import re
+from poker_logic import RANKS
 
 # --- Constants for Hand History Parsing ---
 MARKER_DEALT_TO = "Dealt to "
@@ -17,24 +18,39 @@ RE_BOARD = re.compile(r'\[(.*?)\]')
 RE_AMOUNT = re.compile(r'(\d+\.?\d*)€')
 RE_RAKE = re.compile(r'Rake (\d+\.?\d*)€')
 
-
 def normalize_hand(hand_str):
-    """
-    Convertit une main comme 'AsKd' ou '7c6d' en format 'AKs', '76o', etc.
-    L'ordre des cartes est toujours décroissant selon AKQJT98765432.
-    """
-    if len(hand_str) != 4:
-        return hand_str  # fallback for malformed hands
-    r1, s1, r2, s2 = hand_str[0], hand_str[1], hand_str[2], hand_str[3]
-    ranks = "AKQJT98765432"
-    # Ordonner les cartes par rang décroissant
-    if r1 == r2:
-        return f"{r1}{r1}"
-    if s1 == s2:
-        return f"{r1}{r2}s"
-    else:
-        return f"{r1}{r2}o"
+	"""
+	Convertit une main 'AsKd' -> 'AKs' ou 'AKo' / '77' pour paire.
+	Utilise l'ordre canonique CANONICAL_RANKS pour décider de la carte la plus forte.
+	"""
+	if not isinstance(hand_str, str) or len(hand_str) != 4:
+		return hand_str
+	try:
+		r1, s1, r2, s2 = hand_str[0], hand_str[1], hand_str[2], hand_str[3]
+	except Exception:
+		return hand_str
 
+	# paire
+	if r1 == r2:
+		return f"{r1}{r1}"
+
+	# mettre la carte la plus forte en premier selon CANONICAL_RANKS
+	try:
+		i1 = RANKS[::-1].index(r1)
+		i2 = RANKS[::-1].index(r2)
+	except ValueError:
+		# fallback : garder l'ordre d'origine si rang inconnu
+		i1, i2 = 0, 1
+
+	if i1 > i2:
+		# r2 est plus fort, on swap
+		r1, s1, r2, s2 = r2, s2, r1, s1
+
+	# suited / offsuit
+	if s1 == s2:
+		return f"{r1}{r2}s"
+	else:
+		return f"{r1}{r2}o"
 
 def process_hand(hand_text, user_name):
     """
@@ -42,8 +58,7 @@ def process_hand(hand_text, user_name):
     y compris la main de départ du joueur et les cartes communautaires.
     """
     hand_lines = hand_text.strip().split('\n')
-    bet_amount = 0.0
-    won_amount = 0.0
+    bet_amount, won_amount = 0.0, 0.0
     is_summary = False
     hero_hand = "N/A"
     table_name = "N/A"
@@ -51,6 +66,7 @@ def process_hand(hand_text, user_name):
     is_showdown = MARKER_SHOWDOWN in hand_text
     rake = 0.0
     normalized_hand = None
+    position = None  # <-- Ajout pour la position
 
     # --- AJOUT DES STATISTIQUES ---
     vpip = False
@@ -72,6 +88,11 @@ def process_hand(hand_text, user_name):
             if match_hand:
                 hero_hand = match_hand.group(1).replace(" ", "")
                 normalized_hand = normalize_hand(hero_hand)
+                # --- Détection de la position ---
+                # Exemple Winamax : "Dealt to PogShellCie [As Kd] (BTN)"
+                pos_match = re.search(r"\((\w+)\)", line)
+                if pos_match:
+                    position = pos_match.group(1)
         
         # Extraire les cartes communautaires (flop, turn, river)
         if MARKER_FLOP in line:
@@ -157,7 +178,7 @@ def process_hand(hand_text, user_name):
         rake = 0.0
 
     return {
-        "hand": hero_hand, # Renommé pour la cohérence
+        "hand": hero_hand,
         "table": table_name,
         "bet_amount": bet_amount,
         "gains": won_amount,
@@ -169,6 +190,7 @@ def process_hand(hand_text, user_name):
         "pfr": pfr,
         "three_bet": three_bet,
         "normalized_hand": normalized_hand,
+        "position": position,  # <-- Ajouté ici
     }
 
 def analyser_resultats_cash_game(repertoire, user_name):
@@ -198,6 +220,7 @@ def analyser_resultats_cash_game(repertoire, user_name):
     three_bet_count = 0
     total_hands = 0
     hand_type_results = {}
+    hand_type_counts = {}
 
     for file_path in hand_history_files:
         with open(file_path, 'r', encoding='utf-8') as file:
@@ -234,10 +257,17 @@ def analyser_resultats_cash_game(repertoire, user_name):
             if nh:
                 hand_type_results.setdefault(nh, 0.0)
                 hand_type_results[nh] += hand_details["net"]
+                hand_type_counts.setdefault(nh, 0)
+                hand_type_counts[nh] += 1
 
     vpip_pct = (vpip_count / total_hands * 100) if total_hands else 0
     pfr_pct = (pfr_count / total_hands * 100) if total_hands else 0
     three_bet_pct = (three_bet_count / total_hands * 100) if total_hands else 0
+
+    # ensure counts dict exists
+    if 'hand_type_counts' not in locals():
+        hand_type_counts = {}
+
     return {
         "details": all_hands_details,
         "resultat_net_total": net_result,
@@ -251,14 +281,13 @@ def analyser_resultats_cash_game(repertoire, user_name):
         "pfr_pct": pfr_pct,
         "three_bet_pct": three_bet_pct,
         "hand_type_results": hand_type_results,
+        "hand_type_counts": hand_type_counts,
     }
 
 if __name__ == '__main__':
     chemin = input("Entrez le chemin du dossier d'historique : ")
     pseudo = input("Entrez votre pseudo Winamax : ")
-    #resultats = analyser_resultats_cash_game(chemin, pseudo)
-    #print(resultats)
-    
+
     try:
         resultats = analyser_resultats_cash_game(chemin, pseudo)
         print("\n--- RÉSUMÉ GLOBAL CASH GAME ---")        
@@ -267,5 +296,4 @@ if __name__ == '__main__':
         print(f"Total des gains : {resultats['total_gains']:.2f}€")
         print(f"Résultat Net Global : {resultats['resultat_net_total']:+.2f}€")
     except FileNotFoundError as e:
-        print(e)
         print(e)
