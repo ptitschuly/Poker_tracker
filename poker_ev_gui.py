@@ -167,7 +167,23 @@ def run_analysis(analysis_function, widgets, graph_config):
                 if not user_name:
                     raise ValueError("Veuillez entrer un nom d'utilisateur pour l'analyse cash game.")
                     return
-            results = analysis_function(repertoire, user_name)
+            
+            # Construire les filtres
+            date_filter = None
+            if widgets.get('date_start_entry') and widgets.get('date_end_entry'):
+                date_start = widgets['date_start_entry'].get().strip()
+                date_end = widgets['date_end_entry'].get().strip()
+                if date_start or date_end:
+                    date_filter = (date_start or None, date_end or None)
+            
+            position_filter = None
+            if widgets.get('position_checks'):
+                selected_positions = [pos for pos, var in widgets['position_checks'].items() if var.get()]
+                if selected_positions and len(selected_positions) < len(widgets['position_checks']):
+                    # Seulement filtrer si toutes les positions ne sont pas sélectionnées
+                    position_filter = selected_positions
+            
+            results = analysis_function(repertoire, user_name, date_filter, position_filter)
         else:
             results = analysis_function(repertoire)
 
@@ -350,12 +366,50 @@ def create_analysis_tab(notebook, tab_name, analysis_function, graph_config):
     # --- AJOUT D'UN CHAMP POUR LE PSEUDO ---
     user_name_label = None
     user_name_entry = None
+    date_start_label = None
+    date_start_entry = None
+    date_end_label = None
+    date_end_entry = None
+    position_label = None
+    position_var = None
+    position_checks = {}
+    
     if analysis_function == analyser_resultats_cash_game:
-        user_name_label = ttk.Label(controls_frame, text="Votre Pseudo:")
-        user_name_label.pack(side=tk.LEFT, padx=(0, 5))
-        user_name_entry = ttk.Entry(controls_frame)
+        # Frame pour les contrôles de filtre
+        filter_frame = ttk.LabelFrame(controls_frame, text="Filtres")
+        filter_frame.pack(side=tk.LEFT, padx=(0, 10), fill="y")
+        
+        # Pseudo
+        user_name_label = ttk.Label(filter_frame, text="Votre Pseudo:")
+        user_name_label.grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        user_name_entry = ttk.Entry(filter_frame)
         user_name_entry.insert(0, "PogShellCie") # Default value
-        user_name_entry.pack(side=tk.LEFT, padx=5)
+        user_name_entry.grid(row=0, column=1, padx=5, pady=2)
+        
+        # Filtres de date
+        date_start_label = ttk.Label(filter_frame, text="Date début (YYYY-MM-DD):")
+        date_start_label.grid(row=1, column=0, sticky="w", padx=5, pady=2)
+        date_start_entry = ttk.Entry(filter_frame, width=12)
+        date_start_entry.grid(row=1, column=1, padx=5, pady=2)
+        
+        date_end_label = ttk.Label(filter_frame, text="Date fin (YYYY-MM-DD):")
+        date_end_label.grid(row=2, column=0, sticky="w", padx=5, pady=2)
+        date_end_entry = ttk.Entry(filter_frame, width=12)
+        date_end_entry.grid(row=2, column=1, padx=5, pady=2)
+        
+        # Filtres de position
+        position_label = ttk.Label(filter_frame, text="Positions:")
+        position_label.grid(row=3, column=0, sticky="nw", padx=5, pady=2)
+        
+        positions_frame = ttk.Frame(filter_frame)
+        positions_frame.grid(row=3, column=1, padx=5, pady=2, sticky="w")
+        
+        positions = ["BTN", "SB", "BB", "UTG", "CO", "MP", "HJ"]
+        for i, pos in enumerate(positions):
+            var = tk.BooleanVar(value=True)  # Toutes cochées par défaut
+            position_checks[pos] = var
+            check = ttk.Checkbutton(positions_frame, text=pos, variable=var)
+            check.grid(row=i//4, column=i%4, sticky="w", padx=2)
     
     analyze_button.pack(side=tk.LEFT, padx=5)
     # ...
@@ -410,6 +464,9 @@ def create_analysis_tab(notebook, tab_name, analysis_function, graph_config):
         'canvas_frame': canvas_frame,
         'summary_label': summary_label,
         'user_name_entry': user_name_entry,
+        'date_start_entry': date_start_entry,
+        'date_end_entry': date_end_entry,
+        'position_checks': position_checks,
     }
     if hand_type_btn:
         widgets['hand_type_btn'] = hand_type_btn
