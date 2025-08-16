@@ -390,13 +390,39 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
 if __name__ == '__main__':
     chemin = input("Entrez le chemin du dossier d'historique : ")
     pseudo = input("Entrez votre pseudo Winamax : ")
+    
+    # Demander les filtres optionnels
+    print("\n--- FILTRES OPTIONNELS ---")
+    date_debut = input("Date de début (YYYY-MM-DD, optionnel) : ").strip()
+    date_fin = input("Date de fin (YYYY-MM-DD, optionnel) : ").strip()
+    
+    print("Positions disponibles : BTN, SB, BB, UTG, CO, MP, HJ")
+    positions_input = input("Positions à inclure (séparées par des virgules, optionnel) : ").strip()
+    
+    # Construire les filtres
+    date_filter = None
+    if date_debut or date_fin:
+        date_filter = (date_debut or None, date_fin or None)
+    
+    position_filter = None
+    if positions_input:
+        positions = [pos.strip().upper() for pos in positions_input.split(',') if pos.strip()]
+        if positions:
+            position_filter = positions
 
     try:
-        resultats = analyser_resultats_cash_game(chemin, pseudo)
-        print("\n--- RÉSUMÉ GLOBAL CASH GAME ---")        
+        resultats = analyser_resultats_cash_game(chemin, pseudo, date_filter, position_filter)
+        print("\n--- RÉSUMÉ GLOBAL CASH GAME ---")
+        if date_filter:
+            print(f"Filtres de date : {date_filter[0] or 'début'} - {date_filter[1] or 'fin'}")
+        if position_filter:
+            print(f"Positions filtrées : {', '.join(position_filter)}")
         print(f"Mains jouées : {resultats['total_hands']}")
         print(f"Total des mises : {resultats['total_mise']:.2f}€")
         print(f"Total des gains : {resultats['total_gains']:.2f}€")
         print(f"Résultat Net Global : {resultats['resultat_net_total']:+.2f}€")
+        print(f"VPIP : {resultats['vpip_pct']:.1f}%")
+        print(f"PFR : {resultats['pfr_pct']:.1f}%")
+        print(f"3-bet : {resultats['three_bet_pct']:.1f}%")
     except FileNotFoundError as e:
         print(e)

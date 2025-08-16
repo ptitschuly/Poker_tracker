@@ -164,6 +164,16 @@ def run_analysis(analysis_function, widgets, graph_config):
                     position_filter = selected_positions
             
             results = analysis_function(repertoire, user_name, date_filter, position_filter)
+        elif analysis_function in [analyser_resultats_tournois, analyser_resultats_expresso]:
+            # Pour les tournois et expresso, seul le filtre de date est applicable
+            date_filter = None
+            if widgets.get('date_start_entry') and widgets.get('date_end_entry'):
+                date_start = widgets['date_start_entry'].get().strip()
+                date_end = widgets['date_end_entry'].get().strip()
+                if date_start or date_end:
+                    date_filter = (date_start or None, date_end or None)
+            
+            results = analysis_function(repertoire, date_filter)
         else:
             results = analysis_function(repertoire)
 
@@ -315,6 +325,21 @@ def create_analysis_tab(notebook, tab_name, analysis_function, graph_config):
             position_checks[pos] = var
             check = ttk.Checkbutton(positions_frame, text=pos, variable=var)
             check.grid(row=i//4, column=i%4, sticky="w", padx=2)
+    elif analysis_function in [analyser_resultats_tournois, analyser_resultats_expresso]:
+        # Pour les tournois et expresso, seulement filtres de date
+        filter_frame = ttk.LabelFrame(controls_frame, text="Filtres")
+        filter_frame.pack(side=tk.LEFT, padx=(0, 10), fill="y")
+        
+        # Filtres de date
+        date_start_label = ttk.Label(filter_frame, text="Date début (YYYY-MM-DD):")
+        date_start_label.grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        date_start_entry = ttk.Entry(filter_frame, width=12)
+        date_start_entry.grid(row=0, column=1, padx=5, pady=2)
+        
+        date_end_label = ttk.Label(filter_frame, text="Date fin (YYYY-MM-DD):")
+        date_end_label.grid(row=1, column=0, sticky="w", padx=5, pady=2)
+        date_end_entry = ttk.Entry(filter_frame, width=12)
+        date_end_entry.grid(row=1, column=1, padx=5, pady=2)
     
     analyze_button.pack(side=tk.LEFT, padx=5)
 
