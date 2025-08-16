@@ -126,10 +126,11 @@ def process_hand(hand_text, user_name):
     preflop = True
 
     # Extraire le nom de la table
-    if hand_lines:
-        match_table = RE_TABLE.search(hand_lines[0])
+    for line in hand_lines:
+        match_table = RE_TABLE.search(line)
         if match_table:
             table_name = match_table.group(1)
+            break
 
     for line in hand_lines:
         # Extraire la main du joueur
