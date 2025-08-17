@@ -12,6 +12,7 @@ from recapitulatif_cash_game import analyser_resultats_cash_game
 from poker_logic import  RANKS, Player, PokerScenario, parse_hand_string, parse_community_cards_string
 from poker_calculations import calculate_chip_ev
 
+
 def setup_scenario_from_gui(gui_elements):
     """Parses all GUI inputs and returns a configured scenario and key player details."""
     position_combobox = gui_elements['position_combobox']
@@ -123,8 +124,11 @@ def run_analysis(analysis_function, widgets, graph_config):
     """
     Fonction générique pour lancer une analyse, traiter les résultats et mettre à jour l'UI.
     """
-    repertoire = filedialog.askdirectory(title=f"Sélectionnez le dossier d'historique pour {graph_config['title']}")
+    global selected_history_directory
+    # Utilise le répertoire global, ne demande plus à chaque fois
+    repertoire = selected_history_directory
     if not repertoire:
+        widgets['summary_label'].config(text="Aucun dossier d'historique sélectionné.")
         return
 
     tree = widgets['tree']
@@ -286,7 +290,6 @@ def create_analysis_tab(notebook, tab_name, analysis_function, graph_config):
     date_end_label = None
     date_end_entry = None
     position_label = None
-    position_var = None
     position_checks = {}
     
     if analysis_function == analyser_resultats_cash_game:
@@ -401,10 +404,18 @@ def create_analysis_tab(notebook, tab_name, analysis_function, graph_config):
 def create_gui():
     """Creates the main GUI window for the poker EV calculator and other tabs"""
     global root
+    global selected_history_directory
     root = tk.Tk()
     root.title("Poker Tools")
     root.geometry("900x800")
     root.protocol("WM_DELETE_WINDOW", root.quit)
+
+    # Demande le dossier d'historique une seule fois au lancement
+    selected_history_directory = filedialog.askdirectory(title="Sélectionnez le dossier d'historique à analyser")
+    if not selected_history_directory:
+        tk.messagebox.showerror("Erreur", "Aucun dossier sélectionné. L'application va se fermer.")
+        root.destroy()
+        sys.exit(0)
 
     notebook = ttk.Notebook(root)
     notebook.pack(pady=10, padx=10, fill="both", expand=True)
