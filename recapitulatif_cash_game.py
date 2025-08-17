@@ -1,4 +1,3 @@
-# filepath: c:\Users\schut\Documents\Projet_Winamax\Tracker_poker\recapitulatif_cash_game.py
 import os
 import re
 from poker_logic import RANKS
@@ -15,14 +14,11 @@ MARKER_SUMMARY = "*** SUMMARY ***"
 RE_TABLE = re.compile(r"Table: '(.+?)'")
 RE_HAND = re.compile(r'\[(.+?)\]')
 RE_BOARD = re.compile(r'\[(.*?)\]')
-RE_AMOUNT = re.compile(r'(\d+\.?\d*)€?')  # Support both with and without €
-RE_RAKE = re.compile(r'Rake (\d+\.?\d*)€?')
+RE_AMOUNT = re.compile(r'(\d+\.?\d*)€') 
+RE_RAKE = re.compile(r'Rake (\d+\.?\d*)€')
 RE_BUTTON = re.compile(r'Seat #(\d+) is the button')
 RE_SEAT = re.compile(r'Seat (\d+): ([^(]+) \(')
 RE_DATE = re.compile(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})')
-RE_WON = re.compile(r'(\w+) won \((\d+\.?\d*)\)')  # Parse "Player won (amount)"
-RE_COLLECTED = re.compile(r'(\w+) collected (\d+\.?\d*) from pot')  # Parse "Player collected amount from pot"
-
 
 def get_hero_position(hand_text, user_name):
     """
@@ -75,38 +71,38 @@ def get_hero_position(hand_text, user_name):
     return positions[position_offset] if position_offset < len(positions) else "Unknown"
 
 def normalize_hand(hand_str):
-	"""
-	Convertit une main 'AsKd' -> 'AKs' ou 'AKo' / '77' pour paire.
-	Utilise l'ordre canonique CANONICAL_RANKS pour décider de la carte la plus forte.
-	"""
-	if not isinstance(hand_str, str) or len(hand_str) != 4:
-		return hand_str
-	try:
-		r1, s1, r2, s2 = hand_str[0], hand_str[1], hand_str[2], hand_str[3]
-	except Exception:
-		return hand_str
+    """
+    Convertit une main 'AsKd' -> 'AKs' ou 'AKo' / '77' pour paire.
+    Utilise l'ordre canonique CANONICAL_RANKS pour décider de la carte la plus forte.
+    """
+    if not isinstance(hand_str, str) or len(hand_str) != 4:
+        return hand_str
+    try:
+        r1, s1, r2, s2 = hand_str[0], hand_str[1], hand_str[2], hand_str[3]
+    except Exception:
+        return hand_str
 
-	# paire
-	if r1 == r2:
-		return f"{r1}{r1}"
+    # paire
+    if r1 == r2:
+        return f"{r1}{r1}"
 
-	# mettre la carte la plus forte en premier selon CANONICAL_RANKS
-	try:
-		i1 = RANKS[::-1].index(r1)
-		i2 = RANKS[::-1].index(r2)
-	except ValueError:
-		# fallback : garder l'ordre d'origine si rang inconnu
-		i1, i2 = 0, 1
+    # mettre la carte la plus forte en premier selon CANONICAL_RANKS
+    try:
+        i1 = RANKS[::-1].index(r1)
+        i2 = RANKS[::-1].index(r2)
+    except ValueError:
+        # fallback : garder l'ordre d'origine si rang inconnu
+        i1, i2 = 0, 1
 
-	if i1 > i2:
-		# r2 est plus fort, on swap
-		r1, s1, r2, s2 = r2, s2, r1, s1
+    if i1 > i2:
+        # r2 est plus fort, on swap
+        r1, s1, r2, s2 = r2, s2, r1, s1
 
-	# suited / offsuit
-	if s1 == s2:
-		return f"{r1}{r2}s"
-	else:
-		return f"{r1}{r2}o"
+    # suited / offsuit
+    if s1 == s2:
+        return f"{r1}{r2}s"
+    else:
+        return f"{r1}{r2}o"
 
 def process_hand(hand_text, user_name):
     """
@@ -118,28 +114,27 @@ def process_hand(hand_text, user_name):
     is_summary = False
     hero_hand = "N/A"
     table_name = "N/A"
-    community_cards = "" # Initialisé à une chaîne vide
+    community_cards = ""
     is_showdown = MARKER_SHOWDOWN in hand_text
     rake = 0.0
-    normalized_hand = None    
-    # Nouveau: position et date
+    normalized_hand = None
     position = get_hero_position(hand_text, user_name)
     date_str = None
-    
-    # Extraire la date depuis la première ligne
+
     if hand_lines:
         date_match = RE_DATE.search(hand_lines[0])
         if date_match:
             date_str = date_match.group(1)
 
-    # --- AJOUT DES STATISTIQUES ---
     vpip = False
     pfr = False
     three_bet = False
     preflop_actions = []
     preflop = True
 
-    # Extraire le nom de la table
+    blinds_posted = set() # Pour éviter de compter plusieurs fois la SB/BB
+    actions_seen = set() # Pour ne compter qu'une fois chaque action de mise
+
     for line in hand_lines:
         match_table = RE_TABLE.search(line)
         if match_table:
@@ -167,7 +162,6 @@ def process_hand(hand_text, user_name):
         elif MARKER_TURN in line or MARKER_RIVER in line:
             match_board = RE_BOARD.search(line)
             if match_board:
-                # La ligne contient toutes les cartes jusqu'à ce stade
                 community_cards = match_board.group(1).replace(" ", "")
 
         if MARKER_SUMMARY in line:
@@ -178,34 +172,46 @@ def process_hand(hand_text, user_name):
             if match_rake:
                 rake = float(match_rake.group(1))
 
-        # Check for winnings in different formats
+        # --- Correction du double comptage des blinds ---
         if user_name in line:
-            # Check for "collected" format
-            collected_match = RE_COLLECTED.search(line)
-            if collected_match and collected_match.group(1) == user_name:
-                try:
-                    won_amount += float(collected_match.group(2))
-                except (ValueError, IndexError):
-                    pass
-            
-            # Bet amounts (not in summary)
-            if not is_summary and ("bets" in line or "raises" in line or "calls" in line or "posts" in line):
-                try:
+            # Comptage unique des blinds postées
+            if not is_summary and "posts" in line:
+                if "small blind" in line and "SB" not in blinds_posted:
                     amounts = RE_AMOUNT.findall(line)
                     if amounts:
                         bet_amount += float(amounts[-1])
-                except (ValueError, IndexError):
-                    pass
+                        blinds_posted.add("SB")
+                elif "big blind" in line and "BB" not in blinds_posted:
+                    amounts = RE_AMOUNT.findall(line)
+                    if amounts:
+                        bet_amount += float(amounts[-1])
+                        blinds_posted.add("BB")
+                elif "ante" in line and "ANTE" not in blinds_posted:
+                    amounts = RE_AMOUNT.findall(line)
+                    if amounts:
+                        bet_amount += float(amounts[-1])
+                        blinds_posted.add("ANTE")
+                continue  # Ne pas compter cette ligne dans les autres actions
+
+            # Comptage unique des autres actions (call, raise, bet)
+            if not is_summary and any(word in line for word in ["calls", "raises", "bets"]):
+                # On identifie l'action et la street pour éviter de compter plusieurs fois la même action
+                action_key = (line.strip(),)
+                if action_key not in actions_seen:
+                    amounts = RE_AMOUNT.findall(line)
+                    if amounts:
+                        bet_amount += float(amounts[-1])
+                        actions_seen.add(action_key)
 
             # Summary winnings
             if is_summary and "won" in line:
                 try:
                     match = RE_AMOUNT.search(line)
                     if match:
-                        won_amount += float(match.group(1))
+                        won_amount = float(match.group(1))
                 except (ValueError, IndexError):
                     pass
-                    
+
         # Detect preflop actions for VPIP/PFR/3bet
         if preflop:
             if line.startswith('*** FLOP ***'):
@@ -243,16 +249,13 @@ def process_hand(hand_text, user_name):
                 three_bet = True
                 break
 
-    # --- FIN AJOUT STATISTIQUES ---
     net = won_amount - bet_amount
     net_non_showdown = 0
     if not is_showdown:
         net_non_showdown = net
 
-    # Only count rake if the user won the hand
     if won_amount == 0:
         rake = 0.0
-
     return {
         "hand": hero_hand,
         "table": table_name,
@@ -268,7 +271,6 @@ def process_hand(hand_text, user_name):
         "normalized_hand": normalized_hand,
         "position": position,
         "date": date_str,
-
     }
 
 def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, position_filter=None):
@@ -284,10 +286,6 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
     if not os.path.isdir(repertoire):
         raise FileNotFoundError(f"Le répertoire '{repertoire}' n'existe pas.")
 
-    net_result, total_gains, total_mise, total_rake = 0.0, 0.0, 0.0, 0.0
-    net_non_showdown_cumulative = 0.0
-    hand_results_cumulative = []
-    non_showdown_results_cumulative = []
     all_hands_details = []
     
     excluded_keywords = ["Freeroll", "Expresso", "Kill The Fish", "summary"]
@@ -302,20 +300,16 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
     vpip_count = 0
     pfr_count = 0
     three_bet_count = 0
-    total_hands = 0
     hand_type_results = {}
     hand_type_counts = {}
 
     for file_path in hand_history_files:
         with open(file_path, 'r', encoding='utf-8') as file:
             file_content = file.read()
-
         hand_list = file_content.split('Winamax Poker -')
-        
         for hand_text in hand_list:
             if not hand_text.strip() or "HandId" not in hand_text:
                 continue
-            
             full_hand_text = 'Winamax Poker -' + hand_text
             hand_details = process_hand(full_hand_text, user_name)
             
@@ -323,14 +317,12 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
             if date_filter:
                 hand_date = hand_details.get("date")
                 if hand_date:
-                    # Extraire seulement la date (YYYY-MM-DD) de la chaîne complète
                     hand_date_only = hand_date.split(' ')[0]
                     if date_filter[0] and hand_date_only < date_filter[0]:
                         continue
                     if date_filter[1] and hand_date_only > date_filter[1]:
                         continue
                 else:
-                    # Si pas de date trouvée et qu'un filtre de date est appliqué, ignorer
                     continue
             
             if position_filter:
@@ -339,42 +331,57 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
                     continue
             
             all_hands_details.append(hand_details)
-            
-            net_result += hand_details["net"]
-            hand_results_cumulative.append(net_result)
+            # NE PAS calculer les totaux ici
 
-            net_non_showdown_cumulative += hand_details["net_non_showdown"]
-            non_showdown_results_cumulative.append(net_non_showdown_cumulative)
+    # --- Correction : trier les mains puis calculer les totaux et stats ---
+    def hand_sort_key(hand):
+        return hand.get("date") or "9999-99-99 99:99:99"
+    all_hands_details_sorted = sorted(all_hands_details, key=hand_sort_key)
 
-            total_mise += hand_details["bet_amount"]
-            total_gains += hand_details["gains"]
-            total_rake += hand_details["rake"]
-            total_hands += 1
-            if hand_details.get("vpip"):
-                vpip_count += 1
-            if hand_details.get("pfr"):
-                pfr_count += 1
-            if hand_details.get("three_bet"):
-                three_bet_count += 1
-            nh = hand_details.get("normalized_hand")
-            if nh:
-                hand_type_results.setdefault(nh, 0.0)
-                hand_type_results[nh] += hand_details["net"]
-                hand_type_counts.setdefault(nh, 0)
-                hand_type_counts[nh] += 1
+    hand_results_cumulative = []
+    non_showdown_results_cumulative = []
+    net_cumul = 0.0
+    net_non_showdown_cumul = 0.0
 
+    net_result, total_mise, total_gains = 0.0, 0.0, 0.0
+    total_rake = 0.0
+    vpip_count = 0
+    pfr_count = 0
+    three_bet_count = 0
+    hand_type_results = {}
+    hand_type_counts = {}
+
+    for hand in all_hands_details_sorted:
+        net_result += hand["net"]
+        total_mise += hand["bet_amount"]
+        total_gains += hand["gains"]
+        total_rake += hand["rake"]
+        if hand.get("vpip"):
+            vpip_count += 1
+        if hand.get("pfr"):
+            pfr_count += 1
+        if hand.get("three_bet"):
+            three_bet_count += 1
+        nh = hand.get("normalized_hand")
+        if nh:
+            hand_type_results.setdefault(nh, 0.0)
+            hand_type_results[nh] += hand["net"]
+            hand_type_counts.setdefault(nh, 0)
+            hand_type_counts[nh] += 1
+        net_cumul += hand["net"]
+        hand_results_cumulative.append(net_cumul)
+        net_non_showdown_cumul += hand["net_non_showdown"]
+        non_showdown_results_cumulative.append(net_non_showdown_cumul)
+
+    total_hands = len(all_hands_details_sorted)
     vpip_pct = (vpip_count / total_hands * 100) if total_hands else 0
     pfr_pct = (pfr_count / total_hands * 100) if total_hands else 0
     three_bet_pct = (three_bet_count / total_hands * 100) if total_hands else 0
 
-    # ensure counts dict exists
-    if 'hand_type_counts' not in locals():
-        hand_type_counts = {}
-
     return {
-        "details": all_hands_details,
+        "details": all_hands_details_sorted,
         "resultat_net_total": net_result,
-        "total_hands": len(all_hands_details),
+        "total_hands": total_hands,
         "cumulative_results": hand_results_cumulative,
         "cumulative_non_showdown_results": non_showdown_results_cumulative,
         "total_mise": total_mise,
@@ -386,6 +393,27 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
         "hand_type_results": hand_type_results,
         "hand_type_counts": hand_type_counts,
     }
+
+def test_coherence_net_mise_gains(hands):
+    """
+    Affiche les mains où net != gains - bet_amount.
+    """
+    incoherences = []
+    for i, hand in enumerate(hands):
+        net = hand.get("net")
+        gains = hand.get("gains")
+        mise = hand.get("bet_amount")
+        if net is None or gains is None or mise is None:
+            continue
+        if abs(net - (gains - mise)) > 1e-6:
+            incoherences.append((i, hand.get("hand"), net, gains, mise))
+    if incoherences:
+        print("\n--- Incohérences net/gains/mise détectées ---")
+        for idx, hand_name, net, gains, mise in incoherences:
+            print(f"Main #{idx+1} ({hand_name}): net={net}, gains={gains}, mise={mise}, attendu={gains-mise}")
+        print(f"Total incohérences : {len(incoherences)}")
+    else:
+        print("\nAucune incohérence net/gains/mise détectée.")
 
 if __name__ == '__main__':
     chemin = input("Entrez le chemin du dossier d'historique : ")
@@ -424,5 +452,7 @@ if __name__ == '__main__':
         print(f"VPIP : {resultats['vpip_pct']:.1f}%")
         print(f"PFR : {resultats['pfr_pct']:.1f}%")
         print(f"3-bet : {resultats['three_bet_pct']:.1f}%")
+        # Test de cohérence net/gains/mise
+        test_coherence_net_mise_gains(resultats["details"])
     except FileNotFoundError as e:
         print(e)
