@@ -208,11 +208,13 @@ def run_analysis(analysis_function, widgets, graph_config):
             vpip_pct = results.get("vpip_pct", 0.0)
             pfr_pct = results.get("pfr_pct", 0.0)
             three_bet_pct = results.get("three_bet_pct", 0.0)
+            cbet_pct = results.get("cbet_pct", 0.0)
             summary_text = (
                 f"Mains: {total_hands} | Total misé: {total_mise:.2f}€ | "
                 f"Total gagné: {total_gains:.2f}€ | Rake payé: {total_rake:.2f}€ | "
                 f"Résultat Net Global: {net_result:+.2f}€\n"
-                f"VPIP: {vpip_pct:.1f}% | PFR: {pfr_pct:.1f}% | 3-bet: {three_bet_pct:.1f}%"
+                f"Preflop - VPIP: {vpip_pct:.1f}% | PFR: {pfr_pct:.1f}% | 3-bet: {three_bet_pct:.1f}%\n"
+                f"Flop - CBet: {cbet_pct:.1f}%"
             )
         else:
             count = results.get("nombre_tournois") or results.get("nombre_expressos", 0)
@@ -237,6 +239,8 @@ def run_analysis(analysis_function, widgets, graph_config):
             ax.plot(results["cumulative_results"], marker='o', linestyle='-', markersize=2, color=graph_config.get('color', 'blue'), label="Gains Nets")
             if analysis_function == analyser_resultats_cash_game and "cumulative_non_showdown_results" in results:
                 ax.plot(results["cumulative_non_showdown_results"], linestyle='-', color='red', label="Gains sans Showdown")
+            if analysis_function == analyser_resultats_cash_game and "net_showdown_cumul" in results:
+                ax.plot(results["net_showdown_cumul"], linestyle='-', color='purple', label="Gains Showdown")
             ax.axhline(0, color='grey', linewidth=0.8, linestyle='--')
             ax.set_title(graph_config['title'])
             ax.set_xlabel(graph_config['xlabel'])

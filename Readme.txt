@@ -74,3 +74,8 @@ python test_runner_agent.py --list
 ```
 
 Pour plus d'informations sur les tests, consultez `TEST_RUNNER_DOCS.md`.
+
+
+A venir : 
+gain pur showdown 
+CBET % et montant 

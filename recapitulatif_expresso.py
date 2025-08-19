@@ -4,7 +4,7 @@ import re
 
 # Regex pour extraire la date des noms de fichiers
 RE_DATE_FROM_FILENAME = re.compile(r'(\d{4}-\d{2}-\d{2})')
-
+amount_regex = re.compile(r'(\d+(?:[.,]\d{2})?)€')  # entier ou décimal avec 2 chiffres, accepte virgule
 
 def analyser_resultats_expresso(repertoire, date_filter=None):
     """
@@ -49,13 +49,22 @@ def analyser_resultats_expresso(repertoire, date_filter=None):
         buy_in_fichier = 0.0
         gains_fichier = 0.0
         with open(chemin_complet, 'r', encoding='utf-8') as f:
-            for ligne in f:
-                if ligne.strip().lower().startswith("buy-in"):
-                    montants = re.findall(r'(\d+\.\d{2})€', ligne)
-                    buy_in_fichier = sum(float(m) for m in montants)
-                elif ligne.strip().startswith("You won"):
-                    montants = re.findall(r'(\d+\.\d{2})€', ligne)
-                    gains_fichier = sum(float(m) for m in montants)
+            contenu_texte = f.read()
+            for ligne in contenu_texte.split('\n'):
+                l = ligne.strip()
+                if l.lower().startswith("buy-in"):
+                    montants = amount_regex.findall(l)
+                    if montants:
+                        buy_in_fichier = sum(float(m.replace(',', '.')) for m in montants)
+                    else:
+                        # ligne buy-in présente mais sans montant explicite -> considérer 0.0
+                        buy_in_fichier = 0.0
+                elif l.startswith("You won"):
+                    montants = amount_regex.findall(l)
+                    if montants:
+                        gains_fichier = sum(float(m.replace(',', '.')) for m in montants)
+                    else:
+                        gains_fichier = 0.0
         
         if buy_in_fichier > 0:
             resultat_net = gains_fichier - buy_in_fichier

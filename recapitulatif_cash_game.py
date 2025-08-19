@@ -132,8 +132,14 @@ def process_hand(hand_text, user_name):
     preflop_actions = []
     preflop = True
 
-    blinds_posted = set() # Pour éviter de compter plusieurs fois la SB/BB
-    actions_seen = set() # Pour ne compter qu'une fois chaque action de mise
+    blinds_posted = set()
+    actions_seen = set()
+
+    # --- NEW: cbet tracking ---
+    preflop_hero_raised = False
+    on_flop = False
+    cbet = False
+    cbet_opportunity = False
 
     for line in hand_lines:
         match_table = RE_TABLE.search(line)
@@ -154,15 +160,23 @@ def process_hand(hand_text, user_name):
                 if pos_match:
                     position = pos_match.group(1)
         
-        # Extraire les cartes communautaires (flop, turn, river)
+        # Detect start of flop street
         if MARKER_FLOP in line:
+            on_flop = True
             match_board = RE_BOARD.search(line)
             if match_board:
                 community_cards = match_board.group(1).replace(" ", "")
-        elif MARKER_TURN in line or MARKER_RIVER in line:
+            # continue processing following lines on flop
+            continue
+
+        # Extraire les cartes communautaires (turn, river)
+        if MARKER_TURN in line or MARKER_RIVER in line:
             match_board = RE_BOARD.search(line)
             if match_board:
                 community_cards = match_board.group(1).replace(" ", "")
+            # if turn/river, we are no longer on flop for cbet detection
+            if MARKER_TURN in line or MARKER_RIVER in line:
+                on_flop = False
 
         if MARKER_SUMMARY in line:
             is_summary = True
@@ -212,22 +226,28 @@ def process_hand(hand_text, user_name):
                 except (ValueError, IndexError):
                     pass
 
-        # Detect preflop actions for VPIP/PFR/3bet
+        # Detect preflop actions for VPIP/PFR/3bet and mark if hero raised preflop
         if preflop:
             if line.startswith('*** FLOP ***'):
                 preflop = False
             elif user_name in line:
-                # Exclude posts (blinds/antes)
                 if any(word in line for word in ['calls', 'raises', 'bets']):
                     if 'posts' not in line:
                         vpip = True
                 if 'raises' in line and 'posts' not in line:
                     pfr = True
                     preflop_actions.append('raise')
+                    # NEW: hero raised preflop
+                    preflop_hero_raised = True
                 elif 'calls' in line and 'posts' not in line:
                     preflop_actions.append('call')
                 elif 'bets' in line and 'posts' not in line:
                     preflop_actions.append('bet')
+
+        # NEW: detect cbet on flop (hero bets on flop after having raised preflop)
+        if on_flop and user_name in line and 'bets' in line:
+            if preflop_hero_raised:
+                cbet = True
 
     # Detect 3-bet: If hero raises and there was already a raise before
     # (i.e., hero's first preflop action is a raise and there was a previous raise)
@@ -250,12 +270,15 @@ def process_hand(hand_text, user_name):
                 break
 
     net = won_amount - bet_amount
-    net_non_showdown = 0
+    net_non_showdown, net_showdown = 0, 0
     if not is_showdown:
         net_non_showdown = net
-
+    if is_showdown: 
+        net_showdown = net
     if won_amount == 0:
         rake = 0.0
+
+    # RETURN includes cbet and cbet_opportunity
     return {
         "hand": hero_hand,
         "table": table_name,
@@ -264,6 +287,7 @@ def process_hand(hand_text, user_name):
         "net": net,
         "community_cards": community_cards if community_cards else "N/A",
         "net_non_showdown": net_non_showdown,
+        "net_showdown": net_showdown,
         "rake": rake,
         "vpip": vpip,
         "pfr": pfr,
@@ -271,6 +295,8 @@ def process_hand(hand_text, user_name):
         "normalized_hand": normalized_hand,
         "position": position,
         "date": date_str,
+        "cbet": cbet,
+        "cbet_opportunity": preflop_hero_raised,
     }
 
 def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, position_filter=None):
@@ -331,9 +357,7 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
                     continue
             
             all_hands_details.append(hand_details)
-            # NE PAS calculer les totaux ici
 
-    # --- Correction : trier les mains puis calculer les totaux et stats ---
     def hand_sort_key(hand):
         return hand.get("date") or "9999-99-99 99:99:99"
     all_hands_details_sorted = sorted(all_hands_details, key=hand_sort_key)
@@ -343,13 +367,18 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
     net_cumul = 0.0
     net_non_showdown_cumul = 0.0
 
+    # Initialize counters including cbet counters
     net_result, total_mise, total_gains = 0.0, 0.0, 0.0
     total_rake = 0.0
     vpip_count = 0
     pfr_count = 0
     three_bet_count = 0
+    net_non_showdown_cumul = 0.0
+    net_showdown_cumul = 0.0
     hand_type_results = {}
     hand_type_counts = {}
+    cbet_count = 0
+    cbet_opp_count = 0
 
     for hand in all_hands_details_sorted:
         net_result += hand["net"]
@@ -362,6 +391,11 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
             pfr_count += 1
         if hand.get("three_bet"):
             three_bet_count += 1
+        if hand.get("cbet_opportunity"):
+            cbet_opp_count += 1
+            if hand.get("cbet"):
+                cbet_count += 1
+
         nh = hand.get("normalized_hand")
         if nh:
             hand_type_results.setdefault(nh, 0.0)
@@ -371,12 +405,15 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
         net_cumul += hand["net"]
         hand_results_cumulative.append(net_cumul)
         net_non_showdown_cumul += hand["net_non_showdown"]
+        net_showdown_cumul += hand["net_showdown"]
         non_showdown_results_cumulative.append(net_non_showdown_cumul)
 
     total_hands = len(all_hands_details_sorted)
     vpip_pct = (vpip_count / total_hands * 100) if total_hands else 0
     pfr_pct = (pfr_count / total_hands * 100) if total_hands else 0
     three_bet_pct = (three_bet_count / total_hands * 100) if total_hands else 0
+    # NEW: compute cbet percentage
+    cbet_pct = (cbet_count / cbet_opp_count * 100) if cbet_opp_count else 0
 
     return {
         "details": all_hands_details_sorted,
@@ -384,12 +421,14 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
         "total_hands": total_hands,
         "cumulative_results": hand_results_cumulative,
         "cumulative_non_showdown_results": non_showdown_results_cumulative,
+        "cumulative_showdown_results": net_showdown_cumul,
         "total_mise": total_mise,
         "total_gains": total_gains,
         "total_rake": total_rake,
         "vpip_pct": vpip_pct,
         "pfr_pct": pfr_pct,
         "three_bet_pct": three_bet_pct,
+        "cbet_pct": cbet_pct,
         "hand_type_results": hand_type_results,
         "hand_type_counts": hand_type_counts,
     }
@@ -452,6 +491,7 @@ if __name__ == '__main__':
         print(f"VPIP : {resultats['vpip_pct']:.1f}%")
         print(f"PFR : {resultats['pfr_pct']:.1f}%")
         print(f"3-bet : {resultats['three_bet_pct']:.1f}%")
+        print(f"CBet : {resultats['cbet_pct']:.1f}%")  # NEW
         # Test de cohérence net/gains/mise
         test_coherence_net_mise_gains(resultats["details"])
     except FileNotFoundError as e:

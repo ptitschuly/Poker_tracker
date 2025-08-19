@@ -2,22 +2,32 @@ import os
 import re
 
 # Regex pour extraire la date des noms de fichiers
-RE_DATE_FROM_FILENAME = re.compile(r'(\d{4}-\d{2}-\d{2})')
+RE_DATE_FROM_FILENAME = re.compile(r'(\d{4}-\d{2}-\d{2})|(\d{8})')  # supporte YYYY-MM-DD ou YYYYMMDD
+amount_regex = re.compile(r'(\d+(?:[.,]\d{2})?)€')  # entier ou décimal avec 2 chiffres, accepte virgule
 
 def traiter_resume(contenu_texte):
-    """
-    Extrait le buy-in et les gains d'un contenu textuel de résumé de tournoi.
-    """
-    buy_in = 0.0
-    gains = 0.0
-    for ligne in contenu_texte.split('\n'):
-        if ligne.strip().lower().startswith("buy-in"):
-            montants = re.findall(r'(\d+\.\d{2})€', ligne)
-            buy_in = sum(float(m) for m in montants)
-        elif ligne.strip().startswith("You won"):
-            montants = re.findall(r'(\d+\.\d{2})€', ligne)
-            gains = sum(float(m) for m in montants)
-    return buy_in, gains
+	"""
+	Extrait le buy-in et les gains d'un contenu textuel de résumé de tournoi.
+	Reconnaît les montants comme "0", "0.00", "0,00", etc.
+	"""
+	buy_in = None
+	gains = 0.0
+	for ligne in contenu_texte.split('\n'):
+		l = ligne.strip()
+		if l.lower().startswith("buy-in"):
+			montants = amount_regex.findall(l)
+			if montants:
+				buy_in = sum(float(m.replace(',', '.')) for m in montants)
+			else:
+				# ligne buy-in présente mais sans montant explicite -> considérer 0.0
+				buy_in = 0.0
+		elif l.startswith("You won"):
+			montants = amount_regex.findall(l)
+			if montants:
+				gains = sum(float(m.replace(',', '.')) for m in montants)
+			else:
+				gains = 0.0
+	return buy_in, gains
 
 def analyser_resultats_tournois(repertoire, date_filter=None):
     """
@@ -39,14 +49,22 @@ def analyser_resultats_tournois(repertoire, date_filter=None):
     gains_cumules = []
     resultat_net_courant = 0.0
 
-    fichiers_a_traiter = [f for f in os.listdir(repertoire) if f.endswith("summary.txt") and "Expresso" not in f]
-
+    fichiers_a_traiter = [
+        f for f in os.listdir(repertoire)
+        if f.endswith("summary.txt") and "expresso" not in f.lower()
+    ]
     for nom_fichier in sorted(fichiers_a_traiter):
         # Extraction de la date depuis le nom du fichier
         date_match = RE_DATE_FROM_FILENAME.search(nom_fichier)
         file_date = None
         if date_match:
-            file_date = date_match.group(1)
+            # group(1) = YYYY-MM-DD if présent, group(2) = YYYYMMDD si présent
+            if date_match.group(1):
+                file_date = date_match.group(1)
+            else:
+                g2 = date_match.group(2)
+                # normaliser YYYYMMDD -> YYYY-MM-DD
+                file_date = f"{g2[0:4]}-{g2[4:6]}-{g2[6:8]}"
         
         # Application du filtre de date
         if date_filter and file_date:
@@ -64,7 +82,8 @@ def analyser_resultats_tournois(repertoire, date_filter=None):
         
         buy_in, gains = traiter_resume(contenu)
         
-        if buy_in > 0:
+        # Inclure si une ligne buy-in a été trouvée (même si le montant est 0.0)
+        if buy_in is not None:
             resultat_net = gains - buy_in
             tournoi_data = {
                 "fichier": nom_fichier,
@@ -84,7 +103,6 @@ def analyser_resultats_tournois(repertoire, date_filter=None):
             # Mettre à jour les données pour le graphique
             resultat_net_courant += resultat_net
             gains_cumules.append(resultat_net_courant)
-
     return {
         "details": donnees_tournois,
         "total_buy_ins": total_buy_ins,
