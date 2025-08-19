@@ -5,7 +5,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import sys
 import os
 from focus_cash_game import show_double_entry_table
-from focus_tournoi import show_tournament_details
+from focus_tournoi_et_expresso  import show_tournament_details
 
 from recapitulatif_tournoi import analyser_resultats_tournois
 from recapitulatif_expresso import analyser_resultats_expresso
@@ -236,13 +236,49 @@ def run_analysis(analysis_function, widgets, graph_config):
                 widgets['hand_type_btn'].config(state='normal')
                 widgets['hand_type_btn'].results = results
 
-        if "cumulative_results" in results and results["cumulative_results"]:
-            fig, ax = plt.subplots(figsize=(8, 4), dpi=100)
-            ax.plot(results["cumulative_results"], marker='o', linestyle='-', markersize=2, color=graph_config.get('color', 'blue'), label="Gains Nets")
-            if analysis_function == analyser_resultats_cash_game and "cumulative_non_showdown_results" in results:
-                ax.plot(results["cumulative_non_showdown_results"], linestyle='-', color='red', label="Gains sans Showdown")
-            if analysis_function == analyser_resultats_cash_game and "net_showdown_cumul" in results:
-                ax.plot(results["net_showdown_cumul"], linestyle='-', color='purple', label="Gains Showdown")
+        if "cumulative_results" in results:
+            def to_series(v):
+                if isinstance(v, (list, tuple)):
+                    return list(v)
+                return []
+
+            total_series = to_series(results.get("cumulative_results"))
+            if analysis_function == analyser_resultats_cash_game:
+                non_showdown_series = to_series(results.get("cumulative_non_showdown_results"))
+                # Accepte plusieurs noms possibles pour la série showdown
+                showdown_series = to_series(
+                    results.get("net_showdown_cumul")
+                    or results.get("cumulative_showdown_results")
+                    or []
+                )
+
+                max_len = max(len(total_series), len(non_showdown_series), len(showdown_series), 1)
+                def pad_series(s):
+                    if not s:
+                        return [0.0] * max_len
+                    if len(s) < max_len:
+                        return s + [s[-1]] * (max_len - len(s))
+                    return s
+
+                total_p = pad_series(total_series)
+                non_sd_p = pad_series(non_showdown_series)
+                showdown_p = pad_series(showdown_series)
+                x = list(range(1, max_len + 1))
+
+                fig, ax = plt.subplots(figsize=(8, 4), dpi=100)
+                ax.plot(x, total_p, marker='o', linestyle='-', markersize=3,
+                        color=graph_config.get('color', 'blue'), label="Gains Nets (Total)")
+                ax.plot(x, non_sd_p, marker='o', linestyle='-', markersize=3,
+                        color='red', label="Hors Showdown")
+                ax.plot(x, showdown_p, marker='o', linestyle='-', markersize=3,
+                        color='purple', label="Showdown")
+            else:
+                total_p = total_series
+                x = list(range(1, len(total_p) + 1))
+                fig, ax = plt.subplots(figsize=(8, 4), dpi=100)
+                ax.plot(x, total_p, marker='o', linestyle='-', markersize=3,
+                        color=graph_config.get('color', 'blue'), label=graph_config.get('title', 'Gains Nets'))
+
             ax.axhline(0, color='grey', linewidth=0.8, linestyle='--')
             ax.set_title(graph_config['title'])
             ax.set_xlabel(graph_config['xlabel'])
@@ -250,6 +286,7 @@ def run_analysis(analysis_function, widgets, graph_config):
             ax.grid(True, which='both', linestyle='--', linewidth=0.5)
             ax.legend()
             fig.tight_layout()
+
             canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
             canvas.draw()
             canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
@@ -401,7 +438,7 @@ def create_analysis_tab(notebook, tab_name, analysis_function, graph_config):
                 # Construire le chemin complet du fichier
                 global selected_history_directory
                 if selected_history_directory:
-                    fichier_path = os.path.join(selected_history_directory, filename.replace("_summary","")
+                    fichier_path = os.path.join(selected_history_directory, filename)
                     if os.path.exists(fichier_path):
                         show_tournament_details(fichier_path, parent=tab.winfo_toplevel())
         

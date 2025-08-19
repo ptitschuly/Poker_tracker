@@ -4,6 +4,7 @@ import re
 
 # Regex pour extraire la date des noms de fichiers
 RE_DATE_FROM_FILENAME = re.compile(r'(\d{4}-\d{2}-\d{2})')
+amount_regex = re.compile(r'(\d+(?:\.\d{2})?)€')
 
 def extraire_details_expresso(fichier_path):
     """

@@ -14,11 +14,12 @@ def show_tournament_details(fichier_path, parent=None):
         parent: Fenêtre parent (optionnel)
     """
     # Déterminer le type (tournoi ou expresso) et extraire les détails
+    fichier_path_detail = fichier_path.replace("_summary","")
     if "Expresso" in fichier_path:
-        details = extraire_details_expresso(fichier_path)
+        details = extraire_details_expresso(fichier_path_detail)
         title_prefix = "Détails Expresso"
     else:
-        details = extraire_details_tournoi(fichier_path)
+        details = extraire_details_tournoi(fichier_path_detail)
         title_prefix = "Détails Tournoi"
     
     # Créer la fenêtre popup

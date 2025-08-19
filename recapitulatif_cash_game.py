@@ -364,6 +364,7 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
 
     hand_results_cumulative = []
     non_showdown_results_cumulative = []
+    showdown_results_cumulative = []
     net_cumul = 0.0
     net_non_showdown_cumul = 0.0
 
@@ -405,8 +406,9 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
         net_cumul += hand["net"]
         hand_results_cumulative.append(net_cumul)
         net_non_showdown_cumul += hand["net_non_showdown"]
-        net_showdown_cumul += hand["net_showdown"]
         non_showdown_results_cumulative.append(net_non_showdown_cumul)
+        net_showdown_cumul += hand["net_showdown"]
+        showdown_results_cumulative.append(net_showdown_cumul)
 
     total_hands = len(all_hands_details_sorted)
     vpip_pct = (vpip_count / total_hands * 100) if total_hands else 0
@@ -421,7 +423,7 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
         "total_hands": total_hands,
         "cumulative_results": hand_results_cumulative,
         "cumulative_non_showdown_results": non_showdown_results_cumulative,
-        "cumulative_showdown_results": net_showdown_cumul,
+        "cumulative_showdown_results": showdown_results_cumulative,
         "total_mise": total_mise,
         "total_gains": total_gains,
         "total_rake": total_rake,
@@ -491,7 +493,8 @@ if __name__ == '__main__':
         print(f"VPIP : {resultats['vpip_pct']:.1f}%")
         print(f"PFR : {resultats['pfr_pct']:.1f}%")
         print(f"3-bet : {resultats['three_bet_pct']:.1f}%")
-        print(f"CBet : {resultats['cbet_pct']:.1f}%")  # NEW
+        print(f"CBet : {resultats['cbet_pct']:.1f}%") 
+        print(f"Resultat cumulé showdown : {resultats['cumulative_showdown_results']:.2f}€")
         # Test de cohérence net/gains/mise
         test_coherence_net_mise_gains(resultats["details"])
     except FileNotFoundError as e:
