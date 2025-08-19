@@ -397,7 +397,7 @@ def create_analysis_tab(notebook, tab_name, analysis_function, graph_config):
                 # Construire le chemin complet du fichier
                 global selected_history_directory
                 if selected_history_directory:
-                    fichier_path = os.path.join(selected_history_directory, filename)
+                    fichier_path = os.path.join(selected_history_directory, filename.replace("_summary","")
                     if os.path.exists(fichier_path):
                         show_tournament_details(fichier_path, parent=tab.winfo_toplevel())
         
