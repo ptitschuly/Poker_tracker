@@ -5,6 +5,145 @@ import re
 RE_DATE_FROM_FILENAME = re.compile(r'(\d{4}-\d{2}-\d{2})|(\d{8})')  # supporte YYYY-MM-DD ou YYYYMMDD
 amount_regex = re.compile(r'(\d+(?:[.,]\d{2})?)€')  # entier ou décimal avec 2 chiffres, accepte virgule
 
+def extraire_details_tournoi(fichier_path):
+    """
+    Extrait les détails complets d'un tournoi depuis un fichier de résumé,
+    incluant les mains jouées.
+    
+    Args:
+        fichier_path: Chemin vers le fichier de résumé de tournoi
+        
+    Returns:
+        dict: Détails du tournoi avec buy-in, gains, mains, etc.
+    """
+    details = {
+        "fichier": os.path.basename(fichier_path),
+        "buy_in": 0.0,
+        "gains": 0.0,
+        "net": 0.0,
+        "mains": [],
+        "duree": "",
+        "position_finale": "",
+        "nombre_mains": 0
+    }
+    
+    try:
+        with open(fichier_path, 'r', encoding='utf-8') as f:
+            contenu = f.read()
+        
+        # Extraire buy-in et gains du résumé
+        buy_in, gains = traiter_resume(contenu)
+        details["buy_in"] = buy_in
+        details["gains"] = gains
+        details["net"] = gains - buy_in
+        
+        # Extraire informations additionnelles du résumé
+        lignes = contenu.split('\n')
+        for ligne in lignes:
+            ligne = ligne.strip()
+            if ligne.startswith("Duration:"):
+                details["duree"] = ligne.replace("Duration:", "").strip()
+            elif ligne.startswith("Final Position:"):
+                details["position_finale"] = ligne.replace("Final Position:", "").strip()
+        
+        # Extraire les mains
+        mains = extraire_mains_tournoi(contenu)
+        details["mains"] = mains
+        details["nombre_mains"] = len(mains)
+        
+    except Exception as e:
+        print(f"Erreur lors de l'extraction des détails de {fichier_path}: {e}")
+    
+    return details
+
+def extraire_mains_tournoi(contenu_texte):
+    """
+    Extrait les détails des mains d'un tournoi.
+    
+    Args:
+        contenu_texte: Contenu du fichier de tournoi
+        
+    Returns:
+        list: Liste des mains avec leurs détails
+    """
+    mains = []
+    
+    # Diviser par "*** HAND" ou début de main
+    parties = re.split(r'(?=Winamax Poker.*HandId:)', contenu_texte)
+    
+    for i, partie in enumerate(parties):
+        if not partie.strip() or "HandId:" not in partie:
+            continue
+            
+        main_details = {
+            "numero": i,
+            "hand_id": "",
+            "niveau": "",
+            "cartes_hero": "",
+            "board": "",
+            "action_hero": "",
+            "resultat": 0.0,
+            "pot_size": 0.0,
+            "position": ""
+        }
+        
+        # Extraire l'ID de la main
+        hand_id_match = re.search(r'HandId: #([^-\s]+)', partie)
+        if hand_id_match:
+            main_details["hand_id"] = hand_id_match.group(1)
+        
+        # Extraire le niveau
+        level_match = re.search(r'level: (\d+)', partie)
+        if level_match:
+            main_details["niveau"] = level_match.group(1)
+        
+        # Extraire les cartes du héros
+        cartes_match = re.search(r'Hero: deals \[([^\]]+)\]', partie)
+        if not cartes_match:
+            cartes_match = re.search(r'Hero: shows \[([^\]]+)\]', partie)
+        if cartes_match:
+            main_details["cartes_hero"] = cartes_match.group(1)
+        
+        # Extraire le board
+        flop_match = re.search(r'\*\*\* FLOP \*\*\* \[([^\]]+)\]', partie)
+        turn_match = re.search(r'\*\*\* TURN \*\*\* \[([^\]]+)\]\[([^\]]+)\]', partie)
+        river_match = re.search(r'\*\*\* RIVER \*\*\* \[([^\]]+)\]\[([^\]]+)\]', partie)
+        
+        board_cards = []
+        if flop_match:
+            board_cards.extend(flop_match.group(1).split(' '))
+        if turn_match:
+            board_cards.append(turn_match.group(2))
+        if river_match:
+            board_cards.append(river_match.group(2))
+        
+        main_details["board"] = " ".join(board_cards)
+        
+        # Extraire le résultat (pot gagné)
+        collected_match = re.search(r'Hero collected (\d+(?:\.\d{2})?) from pot', partie)
+        if collected_match:
+            main_details["resultat"] = float(collected_match.group(1))
+        
+        wins_match = re.search(r'Hero wins (\d+(?:\.\d{2})?) with', partie)
+        if wins_match:
+            main_details["resultat"] = float(wins_match.group(1))
+        
+        # Déterminer l'action principale du héros
+        if "fold" in partie and "Hero: folds" in partie:
+            main_details["action_hero"] = "Fold"
+        elif "calls" in partie and "Hero: calls" in partie:
+            main_details["action_hero"] = "Call"
+        elif "raises" in partie and "Hero: raises" in partie:
+            main_details["action_hero"] = "Raise"
+        elif "bets" in partie and "Hero: bets" in partie:
+            main_details["action_hero"] = "Bet"
+        elif "checks" in partie and "Hero: checks" in partie:
+            main_details["action_hero"] = "Check"
+        
+        mains.append(main_details)
+    
+    return mains
+
 def traiter_resume(contenu_texte):
 	"""
 	Extrait le buy-in et les gains d'un contenu textuel de résumé de tournoi.
