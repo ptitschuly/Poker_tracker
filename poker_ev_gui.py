@@ -3,7 +3,9 @@ from tkinter import ttk, filedialog
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import sys
+import os
 from focus_cash_game import show_double_entry_table
+from focus_tournoi import show_tournament_details
 
 from recapitulatif_tournoi import analyser_resultats_tournois
 from recapitulatif_expresso import analyser_resultats_expresso
@@ -384,6 +386,27 @@ def create_analysis_tab(notebook, tab_name, analysis_function, graph_config):
                 show_hand_type_results_popup(hand_type_btn.results)
         hand_type_btn = ttk.Button(tab, text="Voir résultats par main", command=open_hand_type_results, state='disabled')
         hand_type_btn.grid(row=4, column=0, sticky="ew", pady=(5, 0))
+    elif analysis_function in [analyser_resultats_tournois, analyser_resultats_expresso]:
+        # Ajouter le gestionnaire de clic pour les tournois/expressos
+        def on_tournament_click(event):
+            selection = tree.selection()
+            if selection:
+                item = tree.item(selection[0])
+                filename = item['values'][0]  # Le nom du fichier est dans la première colonne
+                
+                # Construire le chemin complet du fichier
+                global selected_history_directory
+                if selected_history_directory:
+                    fichier_path = os.path.join(selected_history_directory, filename)
+                    if os.path.exists(fichier_path):
+                        show_tournament_details(fichier_path, parent=tab.winfo_toplevel())
+        
+        tree.bind('<Double-1>', on_tournament_click)
+        
+        # Ajouter une info-bulle pour indiquer la fonctionnalité
+        info_label = ttk.Label(tab, text="💡 Double-cliquez sur un tournoi pour voir les détails complets", 
+                              font=('TkDefaultFont', 8), foreground='blue')
+        info_label.grid(row=5, column=0, sticky="w", pady=(5, 0))
 
     widgets = {
         'tree': tree,
