@@ -1,23 +1,62 @@
-import os
 import re
+import os
 
-# Regex pour extraire la date des noms de fichiers
-RE_DATE_FROM_FILENAME = re.compile(r'(\d{4}-\d{2}-\d{2})|(\d{8})')  # supporte YYYY-MM-DD ou YYYYMMDD
-amount_regex = re.compile(r'(\d+(?:[.,]\d{2})?)€')  # entier ou décimal avec 2 chiffres, accepte virgule
+# Regex partagées
+RE_DATE_FROM_FILENAME = re.compile(r'(\d{4}-\d{2}-\d{2})|(\d{8})')
+amount_regex = re.compile(r'(\d+(?:[.,]\d{2})?)€')
 
-def extraire_details_tournoi(fichier_path):
+def extraire_date_fichier(nom_fichier):
+    """
+    Extrait la date d'un nom de fichier au format YYYY-MM-DD ou YYYYMMDD.
+    Retourne la date normalisée 'YYYY-MM-DD' ou None.
+    """
+    match = RE_DATE_FROM_FILENAME.search(nom_fichier)
+    if match:
+        if match.group(1):
+            return match.group(1)
+        elif match.group(2):
+            g2 = match.group(2)
+            return f"{g2[0:4]}-{g2[4:6]}-{g2[6:8]}"
+    return None
+
+def extraire_montants_ligne(ligne):
+    """
+    Extrait tous les montants d'une ligne sous forme de float.
+    """
+    return [float(m.replace(',', '.')) for m in amount_regex.findall(ligne)]
+
+def traiter_resume(contenu_texte):
+    """
+    Extrait le buy-in et les gains d'un contenu textuel de résumé de tournoi.
+    Utilise la fonction utilitaire extraire_montants_ligne.
+    """
+    buy_in = None
+    gains = 0.0
+    for ligne in contenu_texte.split('\n'):
+        l = ligne.strip()
+        if l.lower().startswith("buy-in"):
+            buy_in = sum(extraire_montants_ligne(l))
+            if buy_in is None:
+                buy_in = 0.0
+        elif l.startswith("You won"):
+            gains = sum(extraire_montants_ligne(l))
+            if gains is None:
+                gains = 0.0
+    return buy_in, gains
+
+def extraire_details_tournoi_expresso(fichier_path):
     """
     Extrait les détails complets d'un tournoi depuis un fichier de résumé,
     incluant les mains jouées.
     
     Args:
         fichier_path: Chemin vers le fichier de résumé de tournoi
-        
     Returns:
         dict: Détails du tournoi avec buy-in, gains, mains, etc.
     """
     details = {
         "fichier": os.path.basename(fichier_path),
+        "hero_username": "",
         "buy_in": 0.0,
         "gains": 0.0,
         "net": 0.0,
@@ -30,7 +69,12 @@ def extraire_details_tournoi(fichier_path):
     try:
         with open(fichier_path, 'r', encoding='utf-8') as f:
             contenu = f.read()
-        
+
+        # Extraire le joueur : 
+        hero_username = re.search(r'Player: ([^\s]+)', contenu)
+        if hero_username:
+            details["hero_username"] = hero_username.group(1)  
+                  
         # Extraire buy-in et gains du résumé
         buy_in, gains = traiter_resume(contenu)
         details["buy_in"] = buy_in
@@ -41,13 +85,16 @@ def extraire_details_tournoi(fichier_path):
         lignes = contenu.split('\n')
         for ligne in lignes:
             ligne = ligne.strip()
-            if ligne.startswith("Duration:"):
-                details["duree"] = ligne.replace("Duration:", "").strip()
-            elif ligne.startswith("Final Position:"):
-                details["position_finale"] = ligne.replace("Final Position:", "").strip()
-        
+            if ligne.startswith("You played"):
+                details["duree"] = ligne.replace("You played", "").strip()
+            elif ligne.startswith("You finished"):
+                details["position_finale"] = ligne.replace("You finished", "").strip()
+
+        fichier_path_detail = fichier_path.replace("_summary","")
+        with open(fichier_path_detail, 'r', encoding='utf-8') as file:
+            contenu_detail = file.read()
         # Extraire les mains
-        mains = extraire_mains_tournoi(contenu)
+        mains = extraire_mains_tournoi_expresso(contenu_detail)
         details["mains"] = mains
         details["nombre_mains"] = len(mains)
         
@@ -56,7 +103,7 @@ def extraire_details_tournoi(fichier_path):
     
     return details
 
-def extraire_mains_tournoi(contenu_texte):
+def extraire_mains_tournoi_expresso(contenu_texte):
     """
     Extrait les détails des mains d'un tournoi.
     
@@ -76,6 +123,7 @@ def extraire_mains_tournoi(contenu_texte):
             continue
             
         main_details = {
+            "hero": "",
             "numero": i,
             "hand_id": "",
             "niveau": "",
@@ -86,7 +134,12 @@ def extraire_mains_tournoi(contenu_texte):
             "pot_size": 0.0,
             "position": ""
         }
-        
+
+        # Extraire le joueur : 
+        hero_username = re.search(r'Player: ([^\s]+)', partie)
+        if hero_username:
+            main_details["hero"] = hero_username.group(1)
+
         # Extraire l'ID de la main
         hand_id_match = re.search(r'HandId: #([^-\s]+)', partie)
         if hand_id_match:
@@ -98,9 +151,9 @@ def extraire_mains_tournoi(contenu_texte):
             main_details["niveau"] = level_match.group(1)
         
         # Extraire les cartes du héros
-        cartes_match = re.search(r'Hero: deals \[([^\]]+)\]', partie)
+        cartes_match = re.search(rf'Dealt to {re.escape(hero_username)} \[([^\]]+)\]', partie)
         if not cartes_match:
-            cartes_match = re.search(r'Hero: shows \[([^\]]+)\]', partie)
+            cartes_match = re.search(r'shows \[([^\]]+)\]', partie)
         if cartes_match:
             main_details["cartes_hero"] = cartes_match.group(1)
         
@@ -120,57 +173,32 @@ def extraire_mains_tournoi(contenu_texte):
         main_details["board"] = " ".join(board_cards)
         
         # Extraire le résultat (pot gagné)
-        collected_match = re.search(r'Hero collected (\d+(?:\.\d{2})?) from pot', partie)
-        if collected_match:
-            main_details["resultat"] = float(collected_match.group(1))
-        
-        wins_match = re.search(r'Hero wins (\d+(?:\.\d{2})?) with', partie)
+        wins_match = re.search(rf'{re.escape(main_details["hero"])} wins (\d+(?:\.\d{2})?) with', partie)
         if wins_match:
             main_details["resultat"] = float(wins_match.group(1))
         
         # Déterminer l'action principale du héros
-        if "fold" in partie and "Hero: folds" in partie:
+        if "fold" in partie and f"{main_details['hero']} folds" in partie:
             main_details["action_hero"] = "Fold"
-        elif "calls" in partie and "Hero: calls" in partie:
+        elif "calls" in partie and f"{main_details['hero']} calls" in partie:
             main_details["action_hero"] = "Call"
-        elif "raises" in partie and "Hero: raises" in partie:
+        elif "raises" in partie and f"{main_details['hero']} raises" in partie:
             main_details["action_hero"] = "Raise"
-        elif "bets" in partie and "Hero: bets" in partie:
+        elif "bets" in partie and f"{main_details['hero']} bets" in partie:
             main_details["action_hero"] = "Bet"
-        elif "checks" in partie and "Hero: checks" in partie:
+        elif "checks" in partie and f"{main_details['hero']} checks" in partie:
             main_details["action_hero"] = "Check"
         
         mains.append(main_details)
     
     return mains
 
-def traiter_resume(contenu_texte):
-	"""
-	Extrait le buy-in et les gains d'un contenu textuel de résumé de tournoi.
-	Reconnaît les montants comme "0", "0.00", "0,00", etc.
-	"""
-	buy_in = None
-	gains = 0.0
-	for ligne in contenu_texte.split('\n'):
-		l = ligne.strip()
-		if l.lower().startswith("buy-in"):
-			montants = amount_regex.findall(l)
-			if montants:
-				buy_in = sum(float(m.replace(',', '.')) for m in montants)
-			else:
-				# ligne buy-in présente mais sans montant explicite -> considérer 0.0
-				buy_in = 0.0
-		elif l.startswith("You won"):
-			montants = amount_regex.findall(l)
-			if montants:
-				gains = sum(float(m.replace(',', '.')) for m in montants)
-			else:
-				gains = 0.0
-	return buy_in, gains
-
-def analyser_resultats_tournois(repertoire, date_filter=None):
+def analyser_resultats_générique(repertoire, 
+                                 date_filter=None,
+                                 file_filter=lambda f:True,
+                                 count_key="nombre_tournois"):
     """
-    Analyse les fichiers de résumé de tournoi et retourne les données structurées,
+    Analyse les fichiers de résumé Expresso et retourne les données structurées,
     y compris les résultats cumulés pour le graphique.
     
     Args:
@@ -180,30 +208,18 @@ def analyser_resultats_tournois(repertoire, date_filter=None):
     if not os.path.isdir(repertoire):
         raise FileNotFoundError(f"Le répertoire '{repertoire}' n'existe pas.")
 
-    donnees_tournois = []
+    donnees = []
     total_buy_ins = 0.0
     total_gains = 0.0
-    
+
     # Variables pour le graphique
     gains_cumules = []
     resultat_net_courant = 0.0
 
-    fichiers_a_traiter = [
-        f for f in os.listdir(repertoire)
-        if f.endswith("summary.txt") and "expresso" not in f.lower()
-    ]
+    fichiers_a_traiter = [f for f in os.listdir(repertoire) if f.endswith("summary.txt") and file_filter(f)]
     for nom_fichier in sorted(fichiers_a_traiter):
-        # Extraction de la date depuis le nom du fichier
-        date_match = RE_DATE_FROM_FILENAME.search(nom_fichier)
-        file_date = None
-        if date_match:
-            # group(1) = YYYY-MM-DD if présent, group(2) = YYYYMMDD si présent
-            if date_match.group(1):
-                file_date = date_match.group(1)
-            else:
-                g2 = date_match.group(2)
-                # normaliser YYYYMMDD -> YYYY-MM-DD
-                file_date = f"{g2[0:4]}-{g2[4:6]}-{g2[6:8]}"
+        # Extraction de la date depuis le nom du fichier (utilitaire)
+        file_date = extraire_date_fichier(nom_fichier)
         
         # Application du filtre de date
         if date_filter and file_date:
@@ -224,56 +240,30 @@ def analyser_resultats_tournois(repertoire, date_filter=None):
         # Inclure si une ligne buy-in a été trouvée (même si le montant est 0.0)
         if buy_in is not None:
             resultat_net = gains - buy_in
-            tournoi_data = {
+            data = {
                 "fichier": nom_fichier,
                 "buy_in": buy_in,
                 "gains": gains,
                 "net": resultat_net
             }
-            
+
             # Ajouter la date si trouvée
             if file_date:
-                tournoi_data["date"] = file_date
-                
-            donnees_tournois.append(tournoi_data)
+                data["date"] = file_date
+
+            donnees.append(data)
             total_buy_ins += buy_in
             total_gains += gains
 
             # Mettre à jour les données pour le graphique
             resultat_net_courant += resultat_net
             gains_cumules.append(resultat_net_courant)
+
     return {
-        "details": donnees_tournois,
+        "details": donnees,
         "total_buy_ins": total_buy_ins,
         "total_gains": total_gains,
         "resultat_net_total": total_gains - total_buy_ins,
-        "nombre_tournois": len(donnees_tournois),
-        "cumulative_results": gains_cumules  # Clé ajoutée pour le graphique
+        "nombre_expressos": len(donnees),
+        "cumulative_results": gains_cumules # Clé ajoutée pour le graphique
     }
-
-if __name__ == "__main__":
-    # Cette partie sert uniquement à l'exécution directe du script pour le test
-    chemin = input("Entrez le chemin du dossier d'historique : ")
-    
-    # Demander les filtres optionnels
-    print("\n--- FILTRES OPTIONNELS ---")
-    date_debut = input("Date de début (YYYY-MM-DD, optionnel) : ").strip()
-    date_fin = input("Date de fin (YYYY-MM-DD, optionnel) : ").strip()
-    
-    # Construire le filtre de date
-    date_filter = None
-    if date_debut or date_fin:
-        date_filter = (date_debut or None, date_fin or None)
-    
-    try:
-        resultats = analyser_resultats_tournois(chemin, date_filter)
-        print("\n--- RÉSUMÉ GLOBAL TOURNOIS ---")
-        if date_filter:
-            print(f"Filtre de date : {date_filter[0] or 'début'} - {date_filter[1] or 'fin'}")
-        print(f"Nombre de tournois analysés : {resultats['nombre_tournois']}")
-        print(f"Total des Buy-ins : {resultats['total_buy_ins']:.2f}€")
-        print(f"Total des Gains : {resultats['total_gains']:.2f}€")
-        print(f"Résultat Net Global : {resultats['resultat_net_total']:+.2f}€")
-    except FileNotFoundError as e:
-        print(e)
-

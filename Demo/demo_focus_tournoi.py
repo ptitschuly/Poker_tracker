@@ -13,7 +13,7 @@ import json
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from recapitulatif_tournoi import analyser_resultats_tournois, extraire_details_tournoi
-from recapitulatif_expresso import analyser_resultats_expresso, extraire_details_expresso
+from Tracker_poker.recapitulatif_tournament import analyser_resultats_expresso, extraire_details_expresso
 
 def demo_functionality():
     """Démonstration complète de la nouvelle fonctionnalité"""

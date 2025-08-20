@@ -77,5 +77,9 @@ Pour plus d'informations sur les tests, consultez `TEST_RUNNER_DOCS.md`.
 
 
 A venir : 
-gain pur showdown 
-CBET % et montant 
+- Finalisation du détail tournoi et expresso (y compris statistiques associées) :
+a. Etape 1 : Finaliser l'affichage de l'ensemble des mains
+b. Etape 2 : Intégrer l'évolution des chips du héro
+c. Etape 3 : Intégrer le modèle chips expected value sur les coups jouées
+- Finalisation des analyses cash game 
+a. Etape 1 : 

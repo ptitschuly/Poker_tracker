@@ -11,8 +11,8 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from recapitulatif_tournoi import analyser_resultats_tournois
-from recapitulatif_cash_game import analyser_resultats_cash_game
-from recapitulatif_expresso import analyser_resultats_expresso
+from Tracker_poker.fonction_cash_game import analyser_resultats_cash_game
+from Tracker_poker.recapitulatif_tournament import analyser_resultats_expresso
 
 
 class TestDateFiltering(unittest.TestCase):

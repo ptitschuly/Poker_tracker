@@ -1,19 +1,17 @@
 import tkinter as tk
-from tkinter import ttk, filedialog
+from tkinter import ttk, filedialog, messagebox
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import sys
 import os
-from focus_cash_game import show_double_entry_table
-from focus_tournoi_et_expresso  import show_tournament_details
+from interface_focus_cash_game import show_double_entry_table
+from interface_focus_tournoi_et_expresso  import show_tournament_details
 
-from recapitulatif_tournoi import analyser_resultats_tournois
-from recapitulatif_expresso import analyser_resultats_expresso
-from recapitulatif_cash_game import analyser_resultats_cash_game
+from fonction_cash_game import analyser_resultats_cash_game
+from fonction_tournament import analyser_resultats_générique
 
 from poker_logic import  RANKS, Player, PokerScenario, parse_hand_string, parse_community_cards_string
 from poker_calculations import calculate_chip_ev
-
 
 def setup_scenario_from_gui(gui_elements):
     """Parses all GUI inputs and returns a configured scenario and key player details."""
@@ -170,7 +168,7 @@ def run_analysis(analysis_function, widgets, graph_config):
                     position_filter = selected_positions
             
             results = analysis_function(repertoire, user_name, date_filter, position_filter)
-        elif analysis_function in [analyser_resultats_tournois, analyser_resultats_expresso]:
+        elif analysis_function == analyser_resultats_générique:
             # Pour les tournois et expresso, seul le filtre de date est applicable
             date_filter = None
             if widgets.get('date_start_entry') and widgets.get('date_end_entry'):
@@ -223,7 +221,7 @@ def run_analysis(analysis_function, widgets, graph_config):
             total_buy_ins = results.get("total_buy_ins", 0.0)
             total_gains = results.get("total_gains", 0.0)
             net_result = results.get("resultat_net_total", 0.0)
-            item_name = "Tournois" if analysis_function == analyser_resultats_tournois else "Expressos"
+            item_name = "Tournois" if analysis_function == analyser_resultats_générique else "Expressos"
             summary_text = (f"{item_name} analysés: {count} | "
                             f"Total Buy-ins: {total_buy_ins:.2f}€ | "
                             f"Total Gains: {total_gains:.2f}€ | "
@@ -314,7 +312,7 @@ def show_hand_type_results_popup(results_dict):
         root = None
     show_double_entry_table(RANKS, values, counts=counts, title="Résultats par main (matrice)", parent=root)
 
-def create_analysis_tab(notebook, tab_name, analysis_function, graph_config):
+def create_analysis_tab(notebook, tab_name, analysis_function, graph_config, enable_focus=False):
     """
     Crée un onglet d'analyse complet et générique.
     """
@@ -371,7 +369,7 @@ def create_analysis_tab(notebook, tab_name, analysis_function, graph_config):
             position_checks[pos] = var
             check = ttk.Checkbutton(positions_frame, text=pos, variable=var)
             check.grid(row=i//4, column=i%4, sticky="w", padx=2)
-    elif analysis_function in [analyser_resultats_tournois, analyser_resultats_expresso]:
+    elif analysis_function in [analyser_resultats_générique]:
         # Pour les tournois et expresso, seulement filtres de date
         filter_frame = ttk.LabelFrame(controls_frame, text="Filtres")
         filter_frame.pack(side=tk.LEFT, padx=(0, 10), fill="y")
@@ -427,26 +425,37 @@ def create_analysis_tab(notebook, tab_name, analysis_function, graph_config):
                 show_hand_type_results_popup(hand_type_btn.results)
         hand_type_btn = ttk.Button(tab, text="Voir résultats par main", command=open_hand_type_results, state='disabled')
         hand_type_btn.grid(row=4, column=0, sticky="ew", pady=(5, 0))
-    elif analysis_function in [analyser_resultats_tournois, analyser_resultats_expresso]:
+    elif enable_focus:
         # Ajouter le gestionnaire de clic pour les tournois/expressos
         def on_tournament_click(event):
             selection = tree.selection()
-            if selection:
-                item = tree.item(selection[0])
-                filename = item['values'][0]  # Le nom du fichier est dans la première colonne
-                
-                # Construire le chemin complet du fichier
-                global selected_history_directory
-                if selected_history_directory:
-                    fichier_path = os.path.join(selected_history_directory, filename)
-                    if os.path.exists(fichier_path):
-                        show_tournament_details(fichier_path, parent=tab.winfo_toplevel())
-        
+            if not selection:
+                return
+            item = tree.item(selection[0])
+            filename = item['values'][0] if item['values'] else None
+            if not filename:
+                return
+
+            # Construire un chemin robuste
+            paths_to_try = []
+            if os.path.isabs(str(filename)):
+                paths_to_try.append(str(filename))
+            else:
+                if 'selected_history_directory' in globals() and selected_history_directory:
+                    paths_to_try.append(os.path.join(selected_history_directory, str(filename)))
+                paths_to_try.append(str(filename))  # fallback
+
+            fichier_path = next((p for p in paths_to_try if os.path.exists(p)), None)
+            if fichier_path:
+                show_tournament_details(fichier_path, parent=tab.winfo_toplevel())
+            else:
+                messagebox.showerror("Erreur", f"Fichier introuvable :\n{filename}")
+
         tree.bind('<Double-1>', on_tournament_click)
-        
+
         # Ajouter une info-bulle pour indiquer la fonctionnalité
-        info_label = ttk.Label(tab, text="💡 Double-cliquez sur un tournoi pour voir les détails complets", 
-                              font=('TkDefaultFont', 8), foreground='blue')
+        info_label = ttk.Label(tab, text="💡 Double-cliquez sur un tournoi pour voir les détails complets",
+                               font=('TkDefaultFont', 8), foreground='blue')
         info_label.grid(row=5, column=0, sticky="w", pady=(5, 0))
 
     widgets = {
@@ -477,7 +486,7 @@ def create_gui():
     # Demande le dossier d'historique une seule fois au lancement
     selected_history_directory = filedialog.askdirectory(title="Sélectionnez le dossier d'historique à analyser")
     if not selected_history_directory:
-        tk.messagebox.showerror("Erreur", "Aucun dossier sélectionné. L'application va se fermer.")
+        messagebox.showerror("Erreur", "Aucun dossier sélectionné. L'application va se fermer.")
         root.destroy()
         sys.exit(0)
 
@@ -602,14 +611,26 @@ def create_gui():
     create_analysis_tab(
         notebook,
         tab_name="Tournois",
-        analysis_function=analyser_resultats_tournois,
-        graph_config={'title': 'Performance en Tournois', 'xlabel': 'Tournoi N°', 'color': 'blue'}
+        analysis_function=lambda repertoire, date_filter=None: analyser_resultats_générique(
+            repertoire,
+            date_filter=date_filter,
+            file_filter=lambda f: "expresso" not in f.lower(),
+            count_key="nombre_tournois"
+        ),
+        graph_config={'title': 'Performance en Tournois', 'xlabel': 'Tournoi N°', 'color': 'blue'},
+        enable_focus=True
     )
     create_analysis_tab(
         notebook,
         tab_name="Expresso",
-        analysis_function=analyser_resultats_expresso,
-        graph_config={'title': 'Performance en Expresso', 'xlabel': 'Expresso N°', 'color': 'red'}
+        analysis_function=lambda repertoire, date_filter=None: analyser_resultats_générique(
+            repertoire,
+            date_filter=date_filter,
+            file_filter=lambda f: "expresso" in f.lower(),
+            count_key="nombre_expressos"
+        ),
+        graph_config={'title': 'Performance en Expresso', 'xlabel': 'Expresso N°', 'color': 'red'},
+        enable_focus=True
     )
     create_analysis_tab(
         notebook,

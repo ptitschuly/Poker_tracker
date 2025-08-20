@@ -12,7 +12,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from recapitulatif_tournoi import extraire_details_tournoi, analyser_resultats_tournois
-from recapitulatif_expresso import extraire_details_expresso, analyser_resultats_expresso
+from Tracker_poker.recapitulatif_tournament import extraire_details_expresso, analyser_resultats_expresso
 
 def test_tournament_details():
     """Test la fonctionnalité d'extraction des détails de tournoi"""

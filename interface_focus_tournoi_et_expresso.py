@@ -2,8 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from recapitulatif_tournoi import extraire_details_tournoi
-from recapitulatif_expresso import extraire_details_expresso
+from fonction_tournament import extraire_details_tournoi_expresso
 
 def show_tournament_details(fichier_path, parent=None):
     """
@@ -14,16 +13,20 @@ def show_tournament_details(fichier_path, parent=None):
         parent: Fenêtre parent (optionnel)
     """
     # Déterminer le type (tournoi ou expresso) et extraire les détails
-    fichier_path_detail = fichier_path.replace("_summary","")
     if "Expresso" in fichier_path:
-        details = extraire_details_expresso(fichier_path_detail)
+        details = extraire_details_tournoi_expresso(fichier_path)
         title_prefix = "Détails Expresso"
     else:
-        details = extraire_details_tournoi(fichier_path_detail)
+        details = extraire_details_tournoi_expresso(fichier_path)
         title_prefix = "Détails Tournoi"
     
-    # Créer la fenêtre popup
-    root = parent if parent is not None else tk._default_root
+        # Créer la fenêtre popup
+    if parent is not None:
+        root = parent
+    else:
+        if not tk._default_root:
+            tk.Tk()  # Crée la racine si elle n'existe pas
+        root = tk._default_root
     popup = tk.Toplevel(root)
     popup.title(f"{title_prefix} - {details['fichier']}")
     popup.geometry("1000x700")
@@ -167,7 +170,5 @@ if __name__ == "__main__":
     root = tk.Tk()
     root.withdraw()  # Cacher la fenêtre principale
     
-    # Test avec le fichier de tournoi sample
-    show_tournament_details('/tmp/sample_poker_data/2024-01-15_Tournament_123456_summary.txt')
-    
+    # Test avec le fichier de tournoi sample    
     root.mainloop()
