@@ -1,5 +1,8 @@
 import re
 import os
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 # Regex partagées
 RE_DATE_FROM_FILENAME = re.compile(r'(\d{4}-\d{2}-\d{2})|(\d{8})')
@@ -47,8 +50,8 @@ def traiter_resume(contenu_texte):
 def extraire_details_tournoi_expresso(fichier_path):
     """
     Extrait les détails complets d'un tournoi depuis un fichier de résumé,
-    incluant les mains jouées.
-    
+    et extrait d'un fichier de mains jouées.
+
     Args:
         fichier_path: Chemin vers le fichier de résumé de tournoi
     Returns:
@@ -71,10 +74,9 @@ def extraire_details_tournoi_expresso(fichier_path):
             contenu = f.read()
 
         # Extraire le joueur : 
-        hero_username = re.search(r'Player: ([^\s]+)', contenu)
+        hero_username = re.search(r'Player\s*:\s*([^\s]+)', contenu)
         if hero_username:
             details["hero_username"] = hero_username.group(1)  
-                  
         # Extraire buy-in et gains du résumé
         buy_in, gains = traiter_resume(contenu)
         details["buy_in"] = buy_in
@@ -94,7 +96,7 @@ def extraire_details_tournoi_expresso(fichier_path):
         with open(fichier_path_detail, 'r', encoding='utf-8') as file:
             contenu_detail = file.read()
         # Extraire les mains
-        mains = extraire_mains_tournoi_expresso(contenu_detail)
+        mains = extraire_mains_tournoi_expresso(contenu_detail, details["hero_username"])
         details["mains"] = mains
         details["nombre_mains"] = len(mains)
         
@@ -103,12 +105,13 @@ def extraire_details_tournoi_expresso(fichier_path):
     
     return details
 
-def extraire_mains_tournoi_expresso(contenu_texte):
+def extraire_mains_tournoi_expresso(contenu_texte, hero_username="PogShellCie"):
     """
     Extrait les détails des mains d'un tournoi.
     
     Args:
         contenu_texte: Contenu du fichier de tournoi
+        hero_username: Nom d'utilisateur du héros
         
     Returns:
         list: Liste des mains avec leurs détails
@@ -116,14 +119,13 @@ def extraire_mains_tournoi_expresso(contenu_texte):
     mains = []
     
     # Diviser par "*** HAND" ou début de main
-    parties = re.split(r'(?=Winamax Poker.*HandId:)', contenu_texte)
+    parties = re.split(r'(?=Winamax Poker)', contenu_texte)
     
     for i, partie in enumerate(parties):
         if not partie.strip() or "HandId:" not in partie:
             continue
             
         main_details = {
-            "hero": "",
             "numero": i,
             "hand_id": "",
             "niveau": "",
@@ -131,17 +133,19 @@ def extraire_mains_tournoi_expresso(contenu_texte):
             "board": "",
             "action_hero": "",
             "resultat": 0.0,
+            "gain": 0.0,
+            "montant_mise": 0.0,
             "pot_size": 0.0,
-            "position": ""
+            "position": "",
         }
 
-        # Extraire le joueur : 
-        hero_username = re.search(r'Player: ([^\s]+)', partie)
-        if hero_username:
-            main_details["hero"] = hero_username.group(1)
+        # Extrait la taille de la BB
+        bb_size_match = re.search(r'posts big blind\s+(\d+(?:\.\d+)?)', partie)
+        if bb_size_match:
+            main_details["bb_size"] = float(bb_size_match.group(1))
 
-        # Extraire l'ID de la main
-        hand_id_match = re.search(r'HandId: #([^-\s]+)', partie)
+        # Extraire l'ID de la main (inclure tout l'identifiant complet après # jusqu'au prochain espace)
+        hand_id_match = re.search(r'HandId:\s*(#[^\s]+)', partie)
         if hand_id_match:
             main_details["hand_id"] = hand_id_match.group(1)
         
@@ -151,12 +155,12 @@ def extraire_mains_tournoi_expresso(contenu_texte):
             main_details["niveau"] = level_match.group(1)
         
         # Extraire les cartes du héros
-        cartes_match = re.search(rf'Dealt to {re.escape(hero_username)} \[([^\]]+)\]', partie)
+        cartes_match = re.search(rf'Dealt to\s+{re.escape(hero_username)}\s*\[([^\]]+)\]', partie)
         if not cartes_match:
             cartes_match = re.search(r'shows \[([^\]]+)\]', partie)
         if cartes_match:
             main_details["cartes_hero"] = cartes_match.group(1)
-        
+
         # Extraire le board
         flop_match = re.search(r'\*\*\* FLOP \*\*\* \[([^\]]+)\]', partie)
         turn_match = re.search(r'\*\*\* TURN \*\*\* \[([^\]]+)\]\[([^\]]+)\]', partie)
@@ -172,21 +176,40 @@ def extraire_mains_tournoi_expresso(contenu_texte):
         
         main_details["board"] = " ".join(board_cards)
         
-        # Extraire le résultat (pot gagné)
-        wins_match = re.search(rf'{re.escape(main_details["hero"])} wins (\d+(?:\.\d{2})?) with', partie)
+        # Identifie les gains
+        wins_match = re.search(
+            fr'{re.escape(hero_username)} collected (\d+(?:\.\d+)?) from main pot\b', partie)
+        if not wins_match:
+            wins_match = re.search(
+            fr'Seat \d+: {re.escape(hero_username)} [^\n]*? won (\d+(?:\.\d+)?) with\b', partie)
         if wins_match:
-            main_details["resultat"] = float(wins_match.group(1))
+            if main_details.get("bb_size"):
+                main_details["gain"] = float(wins_match.group(1)) / main_details["bb_size"]
+            else:
+                main_details["gain"] = float(wins_match.group(1))
+
+        # Déterminer le montant misé par le héros (inclut ante, blinds, bets, raises, calls)
+        main_details["montant_mise"] = 0.0
+
+        # Additionne toutes les mises du héros (ante, blinds, bets, raises, calls)
+        montant_total = 0.0
+        for m in re.findall(
+            fr'{re.escape(hero_username)} (?:posts ante|posts small blind|posts big blind|bets|raises|calls) (\d+(?:\.\d+)?)',
+            partie):
+            montant_total += float(m)
+        main_details["montant_mise"] = (montant_total / main_details["bb_size"]) if main_details["bb_size"] and main_details["bb_size"] != 0 else 0.0
         
+        main_details["resultat"] = main_details["gain"] - main_details["montant_mise"]
         # Déterminer l'action principale du héros
-        if "fold" in partie and f"{main_details['hero']} folds" in partie:
+        if "fold" in partie and f"{hero_username} folds" in partie:
             main_details["action_hero"] = "Fold"
-        elif "calls" in partie and f"{main_details['hero']} calls" in partie:
+        elif "calls" in partie and f"{hero_username} calls" in partie:
             main_details["action_hero"] = "Call"
-        elif "raises" in partie and f"{main_details['hero']} raises" in partie:
+        elif "raises" in partie and f"{hero_username} raises" in partie:
             main_details["action_hero"] = "Raise"
-        elif "bets" in partie and f"{main_details['hero']} bets" in partie:
+        elif "bets" in partie and f"{hero_username} bets" in partie:
             main_details["action_hero"] = "Bet"
-        elif "checks" in partie and f"{main_details['hero']} checks" in partie:
+        elif "checks" in partie and f"{hero_username} checks" in partie:
             main_details["action_hero"] = "Check"
         
         mains.append(main_details)
@@ -267,3 +290,29 @@ def analyser_resultats_générique(repertoire,
         "nombre_expressos": len(donnees),
         "cumulative_results": gains_cumules # Clé ajoutée pour le graphique
     }
+
+if __name__ == "__main__":
+    # Test automatique sur les fichiers du dossier Projet_Winamax.Historique_test
+    test_dir = os.path.join(os.path.dirname(__file__), "..", "Projet_Winamax/Historique_test")
+    test_dir = os.path.abspath(test_dir)
+    if not os.path.isdir(test_dir):
+        print(f"Dossier de test introuvable : {test_dir}")
+    else:
+        print(f"--- Test extraction tournoi/expresso sur {test_dir} ---")
+        for fname in sorted(os.listdir(test_dir)):
+            if fname.endswith("_summary.txt"):
+                summary_path = os.path.join(test_dir, fname)
+                print(f"\n=== {fname} ===")
+                details = extraire_details_tournoi_expresso(summary_path)
+                print(f"Fichier: {details['fichier']}")
+                print(f"Hero: {details['hero_username']}")
+                print(f"Buy-in: {details['buy_in']} | Gains: {details['gains']} | Net: {details['net']}")
+                print(f"Position finale: {details['position_finale']}")
+                print(f"Durée: {details['duree']}")
+                print(f"Nombre de mains: {details['nombre_mains']}")
+                if details['mains']:
+                    print("Première main extraite:")
+                    main = details['mains'][0]
+                    print(f"  Numéro: {main.get('numero')}, Niveau: {main.get('niveau')}, Cartes: {main.get('cartes_hero')}, Board: {main.get('board')}, Action: {main.get('action_hero')}, Gain: {main.get('gain', main.get('resultat', 0.0))}")
+                else:
+                    print("Aucune main extraite.")

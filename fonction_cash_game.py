@@ -4,6 +4,7 @@ from poker_logic import RANKS
 
 # --- Constants for Hand History Parsing ---
 MARKER_DEALT_TO = "Dealt to "
+MARKER_PREFLOP = "*** PRE-FLOP ***"
 MARKER_FLOP = "*** FLOP ***"
 MARKER_TURN = "*** TURN ***"
 MARKER_RIVER = "*** RIVER ***"
@@ -131,6 +132,7 @@ def process_hand(hand_text, user_name):
     three_bet = False
     preflop_actions = []
     preflop = True
+    aggression_actions = 0
 
     blinds_posted = set()
     actions_seen = set()
@@ -168,7 +170,7 @@ def process_hand(hand_text, user_name):
                 community_cards = match_board.group(1).replace(" ", "")
             # continue processing following lines on flop
             continue
-
+                
         # Extraire les cartes communautaires (turn, river)
         if MARKER_TURN in line or MARKER_RIVER in line:
             match_board = RE_BOARD.search(line)
@@ -216,6 +218,9 @@ def process_hand(hand_text, user_name):
                     if amounts:
                         bet_amount += float(amounts[-1])
                         actions_seen.add(action_key)
+            # Aggression Factor: compter les raises et bets du héros
+            if user_name in line and ('raises' in line or 'bets' in line or 'calls' in line) and 'posts' not in line:
+                aggression_actions += 1
 
             # Summary winnings
             if is_summary and "won" in line:
@@ -237,14 +242,13 @@ def process_hand(hand_text, user_name):
                 if 'raises' in line and 'posts' not in line:
                     pfr = True
                     preflop_actions.append('raise')
-                    # NEW: hero raised preflop
                     preflop_hero_raised = True
                 elif 'calls' in line and 'posts' not in line:
                     preflop_actions.append('call')
                 elif 'bets' in line and 'posts' not in line:
                     preflop_actions.append('bet')
+                    pass
 
-        # NEW: detect cbet on flop (hero bets on flop after having raised preflop)
         if on_flop and user_name in line and 'bets' in line:
             if preflop_hero_raised:
                 cbet = True
@@ -278,7 +282,6 @@ def process_hand(hand_text, user_name):
     if won_amount == 0:
         rake = 0.0
 
-    # RETURN includes cbet and cbet_opportunity
     return {
         "hand": hero_hand,
         "table": table_name,
@@ -297,6 +300,7 @@ def process_hand(hand_text, user_name):
         "date": date_str,
         "cbet": cbet,
         "cbet_opportunity": preflop_hero_raised,
+        "aggression_actions": aggression_actions,  # Ajouté pour Aggression Factor
     }
 
 def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, position_filter=None):
@@ -380,6 +384,8 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
     hand_type_counts = {}
     cbet_count = 0
     cbet_opp_count = 0
+    aggression_total = 0
+    wtsd_count = 0  # WTSD counter
 
     for hand in all_hands_details_sorted:
         net_result += hand["net"]
@@ -396,6 +402,12 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
             cbet_opp_count += 1
             if hand.get("cbet"):
                 cbet_count += 1
+        if hand.get("aggression_actions"):
+            aggression_total += hand.get("aggression_actions")
+        # WTSD: main qui va au showdown
+        if hand.get("net_showdown", 0) != 0 or hand.get("net_non_showdown", 0) == 0 and hand.get("gains", 0) > 0:
+            if hand.get("gains", 0) > 0 or hand.get("net_showdown", 0) != 0:
+                wtsd_count += 1
 
         nh = hand.get("normalized_hand")
         if nh:
@@ -416,6 +428,8 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
     three_bet_pct = (three_bet_count / total_hands * 100) if total_hands else 0
     # NEW: compute cbet percentage
     cbet_pct = (cbet_count / cbet_opp_count * 100) if cbet_opp_count else 0
+    aggression_factor = (aggression_total / total_hands) if total_hands else 0
+    wtsd_pct = (wtsd_count / vpip_count * 100) if vpip_count else 0
 
     return {
         "details": all_hands_details_sorted,
@@ -433,6 +447,8 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
         "cbet_pct": cbet_pct,
         "hand_type_results": hand_type_results,
         "hand_type_counts": hand_type_counts,
+        "aggression_factor": aggression_factor,  # Ajouté pour Aggression Factor
+        "wtsd_pct": wtsd_pct,  # Ajouté pour WTSD
     }
 
 def test_coherence_net_mise_gains(hands):
@@ -493,7 +509,9 @@ if __name__ == '__main__':
         print(f"VPIP : {resultats['vpip_pct']:.1f}%")
         print(f"PFR : {resultats['pfr_pct']:.1f}%")
         print(f"3-bet : {resultats['three_bet_pct']:.1f}%")
-        print(f"CBet : {resultats['cbet_pct']:.1f}%") 
+        print(f"CBet : {resultats['cbet_pct']:.1f}%")
+        print(f"Aggression Factor : {resultats['aggression_factor']:.2f}")  # Affichage Aggression Factor
+        print(f"WTSD : {resultats['wtsd_pct']:.1f}%")  # Affichage WTSD
         print(f"Resultat cumulé showdown : {resultats['cumulative_showdown_results']:.2f}€")
         # Test de cohérence net/gains/mise
         test_coherence_net_mise_gains(resultats["details"])

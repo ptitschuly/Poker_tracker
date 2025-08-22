@@ -209,12 +209,16 @@ def run_analysis(analysis_function, widgets, graph_config):
             pfr_pct = results.get("pfr_pct", 0.0)
             three_bet_pct = results.get("three_bet_pct", 0.0)
             cbet_pct = results.get("cbet_pct", 0.0)
+            aggression_factor = results.get("aggression_factor", 0.0)
+            wtsd_pct = results.get("wtsd_pct", 0.0)
             summary_text = (
                 f"Mains: {total_hands} | Total misé: {total_mise:.2f}€ | "
                 f"Total gagné: {total_gains:.2f}€ | Rake payé: {total_rake:.2f}€ | "
                 f"Résultat Net Global: {net_result:+.2f}€\n"
-                f"Preflop - VPIP: {vpip_pct:.1f}% | PFR: {pfr_pct:.1f}% | 3-bet: {three_bet_pct:.1f}%\n"
-                f"Flop - CBet: {cbet_pct:.1f}%"
+                f"Preflop - VPIP: {vpip_pct:.1f}% | PFR: {pfr_pct:.1f}% | "
+                f"3-bet: {three_bet_pct:.1f}% | AF : {aggression_factor:.1f}\n"
+                f"Flop - CBet: {cbet_pct:.1f}%\n"
+                f"Showdown - WTSD: {wtsd_pct:.1f}%"
             )
         else:
             count = results.get("nombre_tournois") or results.get("nombre_expressos", 0)

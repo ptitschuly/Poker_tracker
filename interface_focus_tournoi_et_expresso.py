@@ -78,7 +78,7 @@ def show_tournament_details(fichier_path, parent=None):
     hands_tree.heading('cards', text='Cartes')
     hands_tree.heading('board', text='Board')
     hands_tree.heading('action', text='Action')
-    hands_tree.heading('result', text='Résultat')
+    hands_tree.heading('result', text='Résultat (en BB)')
     
     hands_tree.column('hand_num', width=60, anchor='center')
     hands_tree.column('level', width=60, anchor='center')
@@ -93,14 +93,13 @@ def show_tournament_details(fichier_path, parent=None):
     
     # Remplir le Treeview avec les mains
     for main in details['mains']:
-        result_text = f"{main['resultat']:.0f}" if main['resultat'] > 0 else "-"
         hands_tree.insert("", "end", values=(
             main['numero'],
             main['niveau'],
             main['cartes_hero'] or '-',
             main['board'] or '-',
             main['action_hero'] or '-',
-            result_text
+            f"{main['resultat']:.2f}" if main['resultat'] is not None else '-'
         ))
     
     hands_tree.pack(side="left", fill="both", expand=True)
