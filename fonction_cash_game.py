@@ -273,6 +273,32 @@ def process_hand(hand_text, user_name):
                 three_bet = True
                 break
 
+    saw_flop = False
+    went_to_showdown = False
+
+    # Detect if hero saw the flop
+    for line in hand_lines:
+        if MARKER_FLOP in line:
+            # If hero did not fold before this line, he saw the flop
+            # Check if there is a fold line for hero before this
+            folded = any(
+                user_name in l and 'folds' in l and 'posts' not in l
+                for l in hand_lines[:hand_lines.index(line)]
+            )
+            if not folded:
+                saw_flop = True
+            break
+
+    # Detect if hero went to showdown
+    if MARKER_SHOWDOWN in hand_text:
+        # If hero did not fold before showdown, he went to showdown
+        folded = any(
+            user_name in l and 'folds' in l and 'posts' not in l
+            for l in hand_lines
+        )
+        if not folded:
+            went_to_showdown = True
+
     net = won_amount - bet_amount
     net_non_showdown, net_showdown = 0, 0
     if not is_showdown:
@@ -301,6 +327,8 @@ def process_hand(hand_text, user_name):
         "cbet": cbet,
         "cbet_opportunity": preflop_hero_raised,
         "aggression_actions": aggression_actions,  # Ajouté pour Aggression Factor
+        "saw_flop": saw_flop,
+        "went_to_showdown": went_to_showdown,
     }
 
 def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, position_filter=None):
@@ -348,9 +376,9 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
                 hand_date = hand_details.get("date")
                 if hand_date:
                     hand_date_only = hand_date.split(' ')[0]
-                    if date_filter[0] and hand_date_only < date_filter[0]:
+                    if date_filter[0] is not None and hand_date_only < date_filter[0]:
                         continue
-                    if date_filter[1] and hand_date_only > date_filter[1]:
+                    if date_filter[1] is not None and hand_date_only > date_filter[1]:
                         continue
                 else:
                     continue
@@ -366,28 +394,25 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
         return hand.get("date") or "9999-99-99 99:99:99"
     all_hands_details_sorted = sorted(all_hands_details, key=hand_sort_key)
 
+    # Initialisation des variables d'agrégation/statistiques
     hand_results_cumulative = []
     non_showdown_results_cumulative = []
     showdown_results_cumulative = []
-    net_cumul = 0.0
-    net_non_showdown_cumul = 0.0
-
-    # Initialize counters including cbet counters
-    net_result, total_mise, total_gains = 0.0, 0.0, 0.0
-    total_rake = 0.0
-    vpip_count = 0
-    pfr_count = 0
-    three_bet_count = 0
     net_non_showdown_cumul = 0.0
     net_showdown_cumul = 0.0
-    hand_type_results = {}
-    hand_type_counts = {}
-    cbet_count = 0
-    cbet_opp_count = 0
+    net_result = total_mise = total_gains = total_rake = 0.0
+    vpip_count = pfr_count = three_bet_count = 0
+    cbet_count = cbet_opp_count = 0
     aggression_total = 0
-    wtsd_count = 0  # WTSD counter
+    flop_seen_count = 0
+    went_to_showdown_count = 0
+    net_cumul = 0.0 
 
     for hand in all_hands_details_sorted:
+        if hand.get("saw_flop"):
+            flop_seen_count +=1
+            if hand.get("went_to_showdown"):
+                went_to_showdown_count += 1
         net_result += hand["net"]
         total_mise += hand["bet_amount"]
         total_gains += hand["gains"]
@@ -404,10 +429,6 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
                 cbet_count += 1
         if hand.get("aggression_actions"):
             aggression_total += hand.get("aggression_actions")
-        # WTSD: main qui va au showdown
-        if hand.get("net_showdown", 0) != 0 or hand.get("net_non_showdown", 0) == 0 and hand.get("gains", 0) > 0:
-            if hand.get("gains", 0) > 0 or hand.get("net_showdown", 0) != 0:
-                wtsd_count += 1
 
         nh = hand.get("normalized_hand")
         if nh:
@@ -429,7 +450,7 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
     # NEW: compute cbet percentage
     cbet_pct = (cbet_count / cbet_opp_count * 100) if cbet_opp_count else 0
     aggression_factor = (aggression_total / total_hands) if total_hands else 0
-    wtsd_pct = (wtsd_count / vpip_count * 100) if vpip_count else 0
+    wtsd_pct = (went_to_showdown_count / flop_seen_count * 100) if flop_seen_count else 0
 
     return {
         "details": all_hands_details_sorted,
@@ -447,8 +468,8 @@ def analyser_resultats_cash_game(repertoire, user_name, date_filter=None, positi
         "cbet_pct": cbet_pct,
         "hand_type_results": hand_type_results,
         "hand_type_counts": hand_type_counts,
-        "aggression_factor": aggression_factor,  # Ajouté pour Aggression Factor
-        "wtsd_pct": wtsd_pct,  # Ajouté pour WTSD
+        "aggression_factor": aggression_factor, 
+        "wtsd_pct": wtsd_pct
     }
 
 def test_coherence_net_mise_gains(hands):

@@ -77,5 +77,5 @@ Pour plus d'informations sur les tests, consultez `TEST_RUNNER_DOCS.md`.
 
 
 A venir : 
-- Tournoi : 
-- Cash game : WTSD% + Fold to 3-Bet  
+- Tournoi : calcul ITM + ROI
+- Cash game : Fold to 3-Bet

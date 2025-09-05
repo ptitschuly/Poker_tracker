@@ -199,18 +199,15 @@ def extraire_mains_tournoi_expresso(contenu_texte, hero_username="PogShellCie"):
             montant_total += float(m)
         main_details["montant_mise"] = (montant_total / main_details["bb_size"]) if main_details["bb_size"] and main_details["bb_size"] != 0 else 0.0
         
+        # Calcul du résultat net de la main
         main_details["resultat"] = main_details["gain"] - main_details["montant_mise"]
-        # Déterminer l'action principale du héros
-        if "fold" in partie and f"{hero_username} folds" in partie:
-            main_details["action_hero"] = "Fold"
-        elif "calls" in partie and f"{hero_username} calls" in partie:
-            main_details["action_hero"] = "Call"
-        elif "raises" in partie and f"{hero_username} raises" in partie:
-            main_details["action_hero"] = "Raise"
-        elif "bets" in partie and f"{hero_username} bets" in partie:
-            main_details["action_hero"] = "Bet"
-        elif "checks" in partie and f"{hero_username} checks" in partie:
-            main_details["action_hero"] = "Check"
+
+        # Déterminer l'action principale du héros (ordre de priorité)
+        actions = ["folds", "calls", "raises", "bets", "checks"]
+        for action in actions:
+            if f"{hero_username} {action}" in partie:
+                main_details["action_hero"] = action.capitalize()
+                break
         
         mains.append(main_details)
     
@@ -239,7 +236,12 @@ def analyser_resultats_générique(repertoire,
     gains_cumules = []
     resultat_net_courant = 0.0
 
-    fichiers_a_traiter = [f for f in os.listdir(repertoire) if f.endswith("summary.txt") and file_filter(f)]
+    fichiers_a_traiter = [
+        f for f in os.listdir(repertoire)
+        if f.endswith("summary.txt")
+        and file_filter(f)
+        and "Super Freeroll Stade" not in f
+    ]
     for nom_fichier in sorted(fichiers_a_traiter):
         # Extraction de la date depuis le nom du fichier (utilitaire)
         file_date = extraire_date_fichier(nom_fichier)

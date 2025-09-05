@@ -143,163 +143,160 @@ def run_analysis(analysis_function, widgets, graph_config):
     summary_label.config(text="Analyse en cours...")
     root.update_idletasks()
 
-    try:
+    if analysis_function == analyser_resultats_cash_game:
+        user_name = None
+        if widgets['user_name_entry']:
+            user_name = widgets['user_name_entry'].get()
+            if not user_name:
+                # show a message in UI and abort
+                widgets['summary_label'].config(text="Veuillez entrer votre pseudo.")
+                return
+
+        # Construire les filtres
+        date_filter = None
+        if widgets.get('date_start_entry') or widgets.get('date_end_entry'):
+            date_start = widgets['date_start_entry'].get().strip()
+            date_end = widgets['date_end_entry'].get().strip()
+            if date_start or date_end:
+                date_filter = (date_start or None, date_end or None)
+
+        position_filter = None
+        if widgets.get('position_checks'):
+            selected_positions = [pos for pos, var in widgets['position_checks'].items() if var.get()]
+            if selected_positions and len(selected_positions) < len(widgets['position_checks']):
+                # Seulement filtrer si toutes les positions ne sont pas sélectionnées
+                position_filter = selected_positions
+
+        results = analysis_function(repertoire, user_name, date_filter, position_filter)
+    elif analysis_function == analyser_resultats_générique:
+        # Pour les tournois et expresso, seul le filtre de date est applicable
+        date_filter = None
+        if widgets.get('date_start_entry') and widgets.get('date_end_entry'):
+            date_start = widgets['date_start_entry'].get().strip()
+            date_end = widgets['date_end_entry'].get().strip()
+            if date_start or date_end:
+                date_filter = (date_start or None, date_end or None)
+
+        results = analysis_function(repertoire, date_filter)
+    else:
+        results = analysis_function(repertoire)
+
+    if "details" in results:
         if analysis_function == analyser_resultats_cash_game:
-            user_name = None
-            if widgets['user_name_entry']:
-                user_name = widgets['user_name_entry'].get()
-                if not user_name:
-                    raise ValueError("Veuillez entrer un nom d'utilisateur pour l'analyse cash game.")
-                    return
-            
-            # Construire les filtres
-            date_filter = None
-            if widgets.get('date_start_entry') and widgets.get('date_end_entry'):
-                date_start = widgets['date_start_entry'].get().strip()
-                date_end = widgets['date_end_entry'].get().strip()
-                if date_start or date_end:
-                    date_filter = (date_start or None, date_end or None)
-            
-            position_filter = None
-            if widgets.get('position_checks'):
-                selected_positions = [pos for pos, var in widgets['position_checks'].items() if var.get()]
-                if selected_positions and len(selected_positions) < len(widgets['position_checks']):
-                    # Seulement filtrer si toutes les positions ne sont pas sélectionnées
-                    position_filter = selected_positions
-            
-            results = analysis_function(repertoire, user_name, date_filter, position_filter)
-        elif analysis_function == analyser_resultats_générique:
-            # Pour les tournois et expresso, seul le filtre de date est applicable
-            date_filter = None
-            if widgets.get('date_start_entry') and widgets.get('date_end_entry'):
-                date_start = widgets['date_start_entry'].get().strip()
-                date_end = widgets['date_end_entry'].get().strip()
-                if date_start or date_end:
-                    date_filter = (date_start or None, date_end or None)
-            
-            results = analysis_function(repertoire, date_filter)
+            tree.heading('filename', text='Main')
+            tree.heading('buyin', text='Mise')
+            tree.heading('winnings', text='Gains')
+            tree.heading('net', text='Net')
+            tree.heading('community', text='Community Cards')
+            for item in results["details"]:
+                tree.insert("", "end", values=(item.get("hand", "N/A"), f'{item.get("bet_amount", 0):.2f}€', f'{item.get("gains", 0):.2f}€', f'{item.get("net", 0):+.2f}€', item.get("community_cards", "N/A")))
         else:
-            results = analysis_function(repertoire)
+            tree.heading('filename', text='Fichier / Session')
+            tree.heading('buyin', text='Buy-in')
+            tree.heading('winnings', text='Gains')
+            tree.heading('net', text='Net')
+            for item in results["details"]:
+                tree.insert("", "end", values=(item.get("fichier", "N/A"), f'{item.get("buy_in", 0):.2f}€', f'{item.get("gains", 0):.2f}€', f'{item.get("net", 0):+.2f}€'))
 
-        if "details" in results:
-            if analysis_function == analyser_resultats_cash_game:
-                tree.heading('filename', text='Main')
-                tree.heading('buyin', text='Mise')
-                tree.heading('winnings', text='Gains')
-                tree.heading('net', text='Net')
-                tree.heading('community', text='Community Cards')
-                for item in results["details"]:
-                    tree.insert("", "end", values=(item.get("hand", "N/A"), f'{item.get("bet_amount", 0):.2f}€', f'{item.get("gains", 0):.2f}€', f'{item.get("net", 0):+.2f}€', item.get("community_cards", "N/A")))
-            else:
-                tree.heading('filename', text='Fichier / Session')
-                tree.heading('buyin', text='Buy-in')
-                tree.heading('winnings', text='Gains')
-                tree.heading('net', text='Net')
-                for item in results["details"]:
-                    tree.insert("", "end", values=(item.get("fichier", "N/A"), f'{item.get("buy_in", 0):.2f}€', f'{item.get("gains", 0):.2f}€', f'{item.get("net", 0):+.2f}€'))
+    summary_text = ""
+    if analysis_function == analyser_resultats_cash_game:
+        total_hands = results.get("total_hands", 0)
+        total_mise = results.get("total_mise", 0.0)
+        total_gains = results.get("total_gains", 0.0)
+        net_result = results.get("resultat_net_total", 0.0)
+        total_rake = results.get("total_rake", 0.0)
+        vpip_pct = results.get("vpip_pct", 0.0)
+        pfr_pct = results.get("pfr_pct", 0.0)
+        three_bet_pct = results.get("three_bet_pct", 0.0)
+        cbet_pct = results.get("cbet_pct", 0.0)
+        aggression_factor = results.get("aggression_factor", 0.0)
+        wtsd_pct = results.get("wtsd_pct", 0.0)
+        summary_text = (
+            f"Mains: {total_hands} | Total misé: {total_mise:.2f}€ | "
+            f"Total gagné: {total_gains:.2f}€ | Rake payé: {total_rake:.2f}€ | "
+            f"Résultat Net Global: {net_result:+.2f}€\n"
+            f"Preflop - VPIP: {vpip_pct:.1f}% | PFR: {pfr_pct:.1f}% | "
+            f"3-bet: {three_bet_pct:.1f}% | AF : {aggression_factor:.1f}\n"
+            f"Flop - CBet: {cbet_pct:.1f}%\n"
+            f"Showdown - WTSD: {wtsd_pct:.1f}%"
+        )
+    else:
+        count = results.get("nombre_tournois") or results.get("nombre_expressos", 0)
+        total_buy_ins = results.get("total_buy_ins", 0.0)
+        total_gains = results.get("total_gains", 0.0)
+        net_result = results.get("resultat_net_total", 0.0)
+        item_name = "Tournois" if analysis_function == analyser_resultats_générique else "Expressos"
+        summary_text = (f"{item_name} analysés: {count} | "
+                        f"Total Buy-ins: {total_buy_ins:.2f}€ | "
+                        f"Total Gains: {total_gains:.2f}€ | "
+                        f"Résultat Net Global: {net_result:+.2f}€")
 
-        summary_text = ""
+    summary_label.config(text=summary_text)
+
+    if analysis_function == analyser_resultats_cash_game and "hand_type_results" in results:
+        if 'hand_type_btn' in widgets:
+            widgets['hand_type_btn'].config(state='normal')
+            widgets['hand_type_btn'].results = results
+
+    if "cumulative_results" in results:
+        def to_series(v):
+            if isinstance(v, (list, tuple)):
+                return list(v)
+            return []
+
+        total_series = to_series(results.get("cumulative_results"))
         if analysis_function == analyser_resultats_cash_game:
-            total_hands = results.get("total_hands", 0)
-            total_mise = results.get("total_mise", 0.0)
-            total_gains = results.get("total_gains", 0.0)
-            net_result = results.get("resultat_net_total", 0.0)
-            total_rake = results.get("total_rake", 0.0)
-            vpip_pct = results.get("vpip_pct", 0.0)
-            pfr_pct = results.get("pfr_pct", 0.0)
-            three_bet_pct = results.get("three_bet_pct", 0.0)
-            cbet_pct = results.get("cbet_pct", 0.0)
-            aggression_factor = results.get("aggression_factor", 0.0)
-            wtsd_pct = results.get("wtsd_pct", 0.0)
-            summary_text = (
-                f"Mains: {total_hands} | Total misé: {total_mise:.2f}€ | "
-                f"Total gagné: {total_gains:.2f}€ | Rake payé: {total_rake:.2f}€ | "
-                f"Résultat Net Global: {net_result:+.2f}€\n"
-                f"Preflop - VPIP: {vpip_pct:.1f}% | PFR: {pfr_pct:.1f}% | "
-                f"3-bet: {three_bet_pct:.1f}% | AF : {aggression_factor:.1f}\n"
-                f"Flop - CBet: {cbet_pct:.1f}%\n"
-                f"Showdown - WTSD: {wtsd_pct:.1f}%"
+            non_showdown_series = to_series(results.get("cumulative_non_showdown_results"))
+            # Accepte plusieurs noms possibles pour la série showdown
+            showdown_series = to_series(
+                results.get("net_showdown_cumul")
+                or results.get("cumulative_showdown_results")
+                or []
             )
+
+            max_len = max(len(total_series), len(non_showdown_series), len(showdown_series), 1)
+            def pad_series(s):
+                if not s:
+                    return [0.0] * max_len
+                if len(s) < max_len:
+                    return s + [s[-1]] * (max_len - len(s))
+                return s
+
+            total_p = pad_series(total_series)
+            non_sd_p = pad_series(non_showdown_series)
+            showdown_p = pad_series(showdown_series)
+            x = list(range(1, max_len + 1))
+
+            fig, ax = plt.subplots(figsize=(8, 4), dpi=100)
+            ax.plot(x, total_p, marker='o', linestyle='-', markersize=3,
+                    color=graph_config.get('color', 'blue'), label="Gains Nets (Total)")
+            ax.plot(x, non_sd_p, marker='o', linestyle='-', markersize=3,
+                    color='red', label="Hors Showdown")
+            ax.plot(x, showdown_p, marker='o', linestyle='-', markersize=3,
+                    color='purple', label="Showdown")
         else:
-            count = results.get("nombre_tournois") or results.get("nombre_expressos", 0)
-            total_buy_ins = results.get("total_buy_ins", 0.0)
-            total_gains = results.get("total_gains", 0.0)
-            net_result = results.get("resultat_net_total", 0.0)
-            item_name = "Tournois" if analysis_function == analyser_resultats_générique else "Expressos"
-            summary_text = (f"{item_name} analysés: {count} | "
-                            f"Total Buy-ins: {total_buy_ins:.2f}€ | "
-                            f"Total Gains: {total_gains:.2f}€ | "
-                            f"Résultat Net Global: {net_result:+.2f}€")
+            total_p = total_series
+            x = list(range(1, len(total_p) + 1))
+            fig, ax = plt.subplots(figsize=(8, 4), dpi=100)
+            ax.plot(x, total_p, marker='o', linestyle='-', markersize=3,
+                    color=graph_config.get('color', 'blue'), label=graph_config.get('title', 'Gains Nets'))
 
-        summary_label.config(text=summary_text)
+        ax.axhline(0, color='grey', linewidth=0.8, linestyle='--')
+        ax.set_title(graph_config['title'])
+        ax.set_xlabel(graph_config['xlabel'])
+        ax.set_ylabel("Résultat Net Cumulé (€)")
+        ax.grid(True, which='both', linestyle='--', linewidth=0.5)
+        ax.legend()
+        fig.tight_layout()
 
-        if analysis_function == analyser_resultats_cash_game and "hand_type_results" in results:
-            if 'hand_type_btn' in widgets:
-                widgets['hand_type_btn'].config(state='normal')
-                widgets['hand_type_btn'].results = results
+        canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+    else:
+        for widget in canvas_frame.winfo_children():
+            widget.destroy()
 
-        if "cumulative_results" in results:
-            def to_series(v):
-                if isinstance(v, (list, tuple)):
-                    return list(v)
-                return []
-
-            total_series = to_series(results.get("cumulative_results"))
-            if analysis_function == analyser_resultats_cash_game:
-                non_showdown_series = to_series(results.get("cumulative_non_showdown_results"))
-                # Accepte plusieurs noms possibles pour la série showdown
-                showdown_series = to_series(
-                    results.get("net_showdown_cumul")
-                    or results.get("cumulative_showdown_results")
-                    or []
-                )
-
-                max_len = max(len(total_series), len(non_showdown_series), len(showdown_series), 1)
-                def pad_series(s):
-                    if not s:
-                        return [0.0] * max_len
-                    if len(s) < max_len:
-                        return s + [s[-1]] * (max_len - len(s))
-                    return s
-
-                total_p = pad_series(total_series)
-                non_sd_p = pad_series(non_showdown_series)
-                showdown_p = pad_series(showdown_series)
-                x = list(range(1, max_len + 1))
-
-                fig, ax = plt.subplots(figsize=(8, 4), dpi=100)
-                ax.plot(x, total_p, marker='o', linestyle='-', markersize=3,
-                        color=graph_config.get('color', 'blue'), label="Gains Nets (Total)")
-                ax.plot(x, non_sd_p, marker='o', linestyle='-', markersize=3,
-                        color='red', label="Hors Showdown")
-                ax.plot(x, showdown_p, marker='o', linestyle='-', markersize=3,
-                        color='purple', label="Showdown")
-            else:
-                total_p = total_series
-                x = list(range(1, len(total_p) + 1))
-                fig, ax = plt.subplots(figsize=(8, 4), dpi=100)
-                ax.plot(x, total_p, marker='o', linestyle='-', markersize=3,
-                        color=graph_config.get('color', 'blue'), label=graph_config.get('title', 'Gains Nets'))
-
-            ax.axhline(0, color='grey', linewidth=0.8, linestyle='--')
-            ax.set_title(graph_config['title'])
-            ax.set_xlabel(graph_config['xlabel'])
-            ax.set_ylabel("Résultat Net Cumulé (€)")
-            ax.grid(True, which='both', linestyle='--', linewidth=0.5)
-            ax.legend()
-            fig.tight_layout()
-
-            canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
-            canvas.draw()
-            canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-        else:
-            for widget in canvas_frame.winfo_children():
-                widget.destroy()
-
-    except FileNotFoundError as e:
-        summary_label.config(text=str(e))
-    except Exception as e:
-        summary_label.config(text=f"Une erreur est survenue: {e}")
+    # Errors will be shown via the UI summary_label where appropriate.
 
 def show_hand_type_results_popup(results_dict):
     """
@@ -350,12 +347,12 @@ def create_analysis_tab(notebook, tab_name, analysis_function, graph_config, ena
         user_name_entry.grid(row=0, column=1, padx=5, pady=2)
         
         # Filtres de date
-        date_start_label = ttk.Label(filter_frame, text="Date début (YYYY-MM-DD):")
+        date_start_label = ttk.Label(filter_frame, text="Start Date (YYYY-MM-DD):")
         date_start_label.grid(row=1, column=0, sticky="w", padx=5, pady=2)
         date_start_entry = ttk.Entry(filter_frame, width=12)
         date_start_entry.grid(row=1, column=1, padx=5, pady=2)
         
-        date_end_label = ttk.Label(filter_frame, text="Date fin (YYYY-MM-DD):")
+        date_end_label = ttk.Label(filter_frame, text="End Date (YYYY-MM-DD):")
         date_end_label.grid(row=2, column=0, sticky="w", padx=5, pady=2)
         date_end_entry = ttk.Entry(filter_frame, width=12)
         date_end_entry.grid(row=2, column=1, padx=5, pady=2)

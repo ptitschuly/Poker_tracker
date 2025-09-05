@@ -5,7 +5,10 @@ from deuces import Card as DeucesCard, Evaluator
 
 evaluator = Evaluator() # Créez une instance de l'évaluateur une seule fois
 
-def calculate_equity_fast(hero_hand, opponent_range, community_cards, num_simulations=10000):
+def calculate_equity_fast(hero_hand, 
+                          opponent_range, 
+                          community_cards, 
+                          num_simulations=10000):
     """
     Calculates equity using the ultra-fast 'deuces' library.
     """
@@ -133,7 +136,11 @@ def parse_range_string(range_string):
                                     hands.add(Hand(Card(rank1, s1), Card(rank2, s2)))
     return hands
 
-def calculate_chip_ev(scenario, player_name, opponent_range_string, player_action, bet_size=0.0, use_icm=False, payout_structure=None):
+def calculate_chip_ev(scenario,
+                      player_name, 
+                      opponent_range_string,
+                      player_action, 
+                      bet_size=0.0):
     """
     Calculates the expected value (EV) of a poker action in chips.
     This implementation assumes a 1-vs-1 scenario for the EV calculation.
@@ -157,16 +164,9 @@ def calculate_chip_ev(scenario, player_name, opponent_range_string, player_actio
     # Calculate equity against the opponent's range
     equity = calculate_equity_fast(hero.hole_cards, opponent_range, scenario.community_cards)
 
-    # Corrected EV Calculation:
-    # EV = (Equity * Reward) - ((1 - Equity) * Risk)
-    # Reward = The total pot size if you win (current pot + opponent's call)
-    # Risk = The amount you are putting into the pot for this action.
-
     if player_action == 'call':
-        # Your risk is the size of the call.
         risk = bet_size
-        # The reward is the pot before you call, plus the opponent's bet you are calling.
-        # This is equivalent to the current pot size.
+
         reward = scenario.pot
         ev = (equity * reward) - ((1 - equity) * risk)
         return ev
